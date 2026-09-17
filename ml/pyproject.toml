@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "alexandria-ml"
+version = "0.1.0"
+description = "Offline data + training pipeline for Alexandria book recommendations."
+requires-python = ">=3.11"
+dependencies = [
+    "alexandria-core",
+    "numpy>=1.26",
+    "pandas>=2.1",
+    "pyarrow>=15",
+    "scikit-learn>=1.4",
+    "torch>=2.4",
+]
+
+[project.optional-dependencies]
+# Semantic text embeddings. Without it the pipeline falls back to TF-IDF + SVD.
+sbert = ["sentence-transformers>=3.0"]
+tracking = ["mlflow>=2.14"]
+dev = ["pytest>=8", "ruff>=0.5"]
+
+[project.scripts]
+alexandria-pipeline = "alexandria_ml.pipeline:main"
+
+[tool.setuptools.packages.find]
+include = ["alexandria_ml*"]

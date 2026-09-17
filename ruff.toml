@@ -1,0 +1,9 @@
+line-length = 120
+target-version = "py311"
+
+[lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+ignore = ["E501", "B008"]  # B008: FastAPI's Query()/Depends() defaults
+
+[lint.isort]
+known-first-party = ["alexandria_core", "alexandria_ml", "app"]

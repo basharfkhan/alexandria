@@ -1,0 +1,61 @@
+@import "tailwindcss";
+
+:root {
+  --paper: #faf6ef;
+  --card: #ffffff;
+  --ink: #1f1b16;
+  --muted: #6f665b;
+  --line: #e7dfd2;
+  --accent: #7a2e2e;
+  --accent-soft: #f3e3de;
+  --moss: #3f6b4f;
+  --moss-soft: #e2eee5;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #16130f;
+    --card: #211d18;
+    --ink: #f1ebe1;
+    --muted: #a99f92;
+    --line: #342e27;
+    --accent: #e39a8a;
+    --accent-soft: #3b2522;
+    --moss: #8fc4a0;
+    --moss-soft: #1f3327;
+  }
+}
+
+@theme inline {
+  --color-paper: var(--paper);
+  --color-card: var(--card);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-moss: var(--moss);
+  --color-moss-soft: var(--moss-soft);
+  --font-sans: var(--font-inter);
+  --font-serif: var(--font-fraunces);
+}
+
+body {
+  background: var(--paper);
+  color: var(--ink);
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.animate-rise {
+  animation: rise 0.35s ease-out both;
+}

@@ -1,0 +1,35 @@
+# Python
+.venv/
+__pycache__/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# Data & model outputs (regenerate with the pipeline)
+ml/data/
+ml/artifacts/
+ml/mlflow.db
+ml/mlruns/
+mlruns/
+
+# Secrets & local databases
+.env
+*.env.local
+!.env.example
+*.db
+
+# Web
+web/node_modules/
+web/.next/
+web/out/
+web/next-env.d.ts
+*.tsbuildinfo
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Logs
+*.log
