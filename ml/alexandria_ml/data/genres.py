@@ -23,7 +23,10 @@ GENRE_KEYWORDS: dict[str, list[str]] = {
     "classics": ["classics", "classic", "classic-literature"],
     "contemporary": ["contemporary", "contemporary-fiction", "realistic-fiction"],
     "young-adult": ["young-adult", "ya", "teen", "ya-fiction"],
-    "childrens": ["childrens", "children", "kids", "picture-books", "middle-grade"],
+    "childrens": [
+        "childrens", "children", "kids", "picture-books", "middle-grade",
+        "children-s-literature", "childrens-literature", "children-s-books", "childrens-books",
+    ],
     "adventure": ["adventure", "action"],
     "humor": ["humor", "humour", "funny", "comedy"],
     "graphic-novels": ["graphic-novels", "graphic-novel", "comics", "manga"],
@@ -52,12 +55,23 @@ def _compile(keyword: str) -> re.Pattern[str]:
     return re.compile(rf"(^|[-_]){re.escape(keyword)}($|[-_])")
 
 
-_GENRE_PATTERNS = {g: [_compile(k) for k in kws] for g, kws in GENRE_KEYWORDS.items()}
+# Longest keywords first, so "science-fiction" claims a tag before "science" can.
+_KEYWORD_PATTERNS = sorted(
+    ((kw, genre, _compile(kw)) for genre, kws in GENRE_KEYWORDS.items() for kw in kws),
+    key=lambda item: -len(item[0]),
+)
+_GENRE_ORDER = {genre: i for i, genre in enumerate(GENRE_KEYWORDS)}
 
 
 def genres_for_tag(tag: str) -> list[str]:
-    tag = tag.lower().strip()
-    return [g for g, pats in _GENRE_PATTERNS.items() if any(p.search(tag) for p in pats)]
+    remaining = tag.lower().strip()
+    found: set[str] = set()
+    for _kw, genre, pattern in _KEYWORD_PATTERNS:
+        if pattern.search(remaining):
+            found.add(genre)
+            # Consume the matched keyword so shorter keywords can't re-match inside it.
+            remaining = pattern.sub("-", remaining)
+    return sorted(found, key=_GENRE_ORDER.__getitem__)
 
 
 def is_noise_tag(tag: str) -> bool:

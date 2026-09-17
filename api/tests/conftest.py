@@ -34,7 +34,7 @@ def make_artifacts(out: Path, n: int = 90) -> Path:
         {
             "book_id": i + 1,
             "title": f"{GENRES[labels[i]].title()} Book {i + 1}",
-            "authors": f"Writer {labels[i]}",
+            "authors": f"Writer {i}",
             "year": 2000 + i % 20,
             "avg_rating": 3.5 + (i % 10) / 10,
             "ratings_count": 1000 + 37 * i,

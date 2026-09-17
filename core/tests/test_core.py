@@ -89,3 +89,13 @@ def test_explore_slots_are_marked(catalog):
 def test_similar(catalog):
     rec = HybridRecommender(catalog)
     assert all(j < 50 for j, _ in rec.similar(5, k=5))
+
+
+def test_author_cap_limits_repeats(catalog):
+    catalog.authors = ["Same Author"] * 50 + [f"Author {i}" for i in range(50)]
+    rec = HybridRecommender(catalog)
+    capped = rec.recommend({0: 2.0}, k=10, diversity=0, max_per_author=3)
+    assert sum(r.index < 50 for r in capped) == 3
+    assert len(capped) == 10
+    uncapped = rec.recommend({0: 2.0}, k=10, diversity=0)
+    assert sum(r.index < 50 for r in uncapped) >= 8

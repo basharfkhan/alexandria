@@ -116,6 +116,8 @@ What the first real-data run found:
   the validation split was 0.110. Without it: 0.174 and 42% coverage.
 - **The global Gram term (`YᵀY`) matters.** Solving only over rated items overfits heavy users
   (full-history NDCG@20 as low as 0.034).
+- A 3-books-per-author cap plus MMR diversity cost almost nothing (NDCG@20 0.243 → 0.242) and
+  fixed lists like "8 Brandon Sanderson books" that the metrics alone didn't flag.
 - λ barely matters; α = 5 beat α = 20; letting CF take over faster (`0.8·n/(n+2)`) helped cold start.
 - **Popularity weight is a product decision, not just a metric.** 0.5 scored highest (objective
   0.155) but covered 27% of the catalog; 0.3 kept most of the gain (0.150) at 39% coverage.

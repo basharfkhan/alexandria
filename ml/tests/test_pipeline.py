@@ -10,6 +10,11 @@ from alexandria_ml.data.synthetic import make_synthetic
 
 def test_genre_mapping():
     assert genres_for_tag("sci-fi") == ["science-fiction"]
+    # Regression: "science" used to match inside "science-fiction", labelling 1984 as a science book.
+    assert genres_for_tag("science-fiction") == ["science-fiction"]
+    assert genres_for_tag("popular-science") == ["science"]
+    assert genres_for_tag("science-fiction-fantasy") == ["fantasy", "science-fiction"]
+    assert genres_for_tag("historical-fiction") == ["historical-fiction"]
     assert "young-adult" in genres_for_tag("ya-fantasy")
     assert genres_for_tag("to-read") == []
     assert is_noise_tag("books-i-own") and is_noise_tag("2015-reads") and not is_noise_tag("fantasy")

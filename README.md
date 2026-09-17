@@ -85,20 +85,26 @@ Inspect experiments with `mlflow ui --backend-store-uri sqlite:///ml/mlflow.db`.
 
 ## Offline evaluation
 
-Protocol: for each user with ≥5 positive ratings (≥4★), 20% of positives are held out; models rank
-the full catalog excluding the user's training items. Metrics are averaged over 2,000 sampled users.
+Goodbooks-10k: 10,000 books · 53,424 users · 5.98M ratings. For each user with ≥5 positive ratings
+(≥4★), 20% of positives are held out; every model ranks the full catalog minus the user's training
+books. Metrics averaged over 2,000 test users. Serving hyper-parameters were tuned on a separate
+validation split (`python -m alexandria_ml.tune`), never on the test set.
 
-| Model | Recall@20 | NDCG@20 | Coverage@20 |
-|---|---|---|---|
-| Popularity baseline | _run pipeline_ | | |
-| Content (embeddings) | | | |
-| BPR-MF (learned user vectors) | | | |
-| **Hybrid + fold-in (production path)** | | | |
-| Hybrid, only 5 ratings known (cold start) | | | |
+| Model | Recall@20 | NDCG@20 | Hit rate@20 | Coverage@20 |
+|---|---|---|---|---|
+| Popularity baseline | 0.083 | 0.089 | 59.4% | 0.6% |
+| Content only (MiniLM embeddings) | 0.030 | 0.026 | 27.0% | 14.5% |
+| BPR-MF (learned user vectors) | 0.181 | 0.183 | 86.6% | 64.6% |
+| **Hybrid + fold-in, as served** (MMR + author cap) | **0.216** | **0.242** | **90.2%** | **53.3%** |
+| Hybrid, cold start (only 5 ratings known) | 0.117 | 0.135 | 71.3% | 63.0% |
 
-> Fill this table from `ml/artifacts/manifest.json` after training on Goodbooks-10k. On the bundled
-> synthetic dataset the production hybrid reaches Recall@20 0.355 vs 0.219 for popularity, and
-> 0.306 with only 5 known ratings.
+- The served hybrid beats BPR by **+32% NDCG@20** without a learned per-user embedding - new
+  feedback changes recommendations instantly - and beats popularity **2.7×**.
+- With only 5 ratings it already beats the popularity baseline by **52%** NDCG@20.
+- Tuning mattered: the first real-data run scored 0.112 NDCG@20 with 1.9% coverage because BPR's
+  item bias (a hidden popularity term) dominated every user's list. See
+  [ARCHITECTURE.md → Hyper-parameter tuning](docs/ARCHITECTURE.md#hyper-parameter-tuning).
+- Weak spot: the content model (Goodbooks has no book descriptions) - addressed in roadmap Phase 10.
 
 ## Roadmap
 

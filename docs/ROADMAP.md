@@ -78,18 +78,29 @@ test, and talk about in an interview. ✅ = implemented in this repo, ⬜ = next
       NDCG@20 doesn't regress (model registry in MLflow).
 - [ ] Hot-reload the recommender when a new `model_version` is seeded.
 
-### Phase 10 - Better models ⬜
+### Phase 10 - Scale the catalog: 10k → 200k books ⬜
+Goodbooks-10k only covers popular books and has no descriptions, which is why the content model is
+weak (Recall@20 0.03). The [UCSD Goodreads Book Graph](https://mengtingwan.github.io/data/goodreads)
+has 2.36M books, 229M interactions and real blurbs (check its academic-use terms first).
+- [ ] Ingest a filtered subset (~100-200k books with enough interactions) + descriptions.
+- [ ] Re-embed with descriptions; measure the content model's improvement.
+- [ ] Item cold start: content-only scoring for books with no interactions.
+- [ ] Move candidate generation into pgvector (ANN over content + CF vectors, then blend ~500
+      candidates) - the in-memory full scan won't fit a free tier past ~100k books.
+- [ ] `halfvec` / smaller embeddings to fit Neon's free storage.
+
+### Phase 11 - Better models ⬜
 - [ ] Two-tower neural retrieval model (user tower over history + item tower over text features).
 - [ ] Learning-to-rank re-ranker (LightGBM LambdaMART) on candidate features + logged impressions.
 - [ ] Richer book text: pull descriptions from Open Library to improve embeddings.
 - [ ] Hyperparameter search (Optuna) tracked in MLflow.
 
-### Phase 11 - Measure online ⬜
+### Phase 12 - Measure online ⬜
 - [ ] Dashboard of CTR / "loved" rate by recommendation reason and position from `events`.
 - [ ] A/B test framework: assign users to ranking variants, compare engagement.
 - [ ] Alembic migrations, rate limiting, structured logging, Sentry/OpenTelemetry.
 
-### Phase 12 - Product polish ⬜
+### Phase 13 - Product polish ⬜
 - [ ] "Chat to refine" on the Discover page ("something shorter and funnier").
 - [ ] Goodreads CSV import to bootstrap a profile.
 - [ ] Reading-goal tracking and shareable shelves.

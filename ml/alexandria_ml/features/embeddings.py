@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from collections.abc import Sequence
 from pathlib import Path
@@ -55,15 +56,18 @@ def embed_books(texts: Sequence[str], method: str = "auto") -> tuple[np.ndarray,
 
 
 def cached_embeddings(texts: Sequence[str], cache_dir: Path, method: str = "auto") -> tuple[np.ndarray, str]:
-    """Embed once per dataset; MiniLM over 10k books takes minutes on CPU."""
+    """Embed once per distinct set of book texts; MiniLM over 10k books takes minutes on CPU.
+
+    The cache key hashes the texts, so changing how book text is built (e.g. genre mapping)
+    automatically invalidates stale embeddings.
+    """
+    digest = hashlib.sha1("\n".join(texts).encode("utf-8")).hexdigest()[:12]
     for candidate in (["sbert", "tfidf"] if method == "auto" else [method]):
-        path = cache_dir / f"content_{candidate}.npy"
+        path = cache_dir / f"content_{candidate}_{digest}.npy"
         if path.exists():
-            emb = np.load(path)
-            if len(emb) == len(texts):
-                log.info("loaded cached %s embeddings from %s", candidate, path)
-                return emb, candidate
+            log.info("loaded cached %s embeddings from %s", candidate, path)
+            return np.load(path), candidate
     emb, used = embed_books(texts, method)
     cache_dir.mkdir(parents=True, exist_ok=True)
-    np.save(cache_dir / f"content_{used}.npy", emb)
+    np.save(cache_dir / f"content_{used}_{digest}.npy", emb)
     return emb, used

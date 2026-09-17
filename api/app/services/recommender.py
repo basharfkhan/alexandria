@@ -16,6 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from alexandria_core import FEEDBACK_WEIGHTS, CatalogArrays, HybridRecommender, Recommendation
+from app.config import get_settings
 from app.models import Book, Interaction, ModelMeta, User
 
 
@@ -36,8 +37,14 @@ class RecommenderService:
     def recommend_for(self, user: User, k: int, explore_slots: int) -> tuple[list[Recommendation], float]:
         feedback = self.user_feedback(user.interactions)
         # Roughly one exploration pick per eight recommendations, so short lists stay focused.
+        settings = get_settings()
         recs = self.recommender.recommend(
-            feedback, genres=user.favorite_genres or [], k=k, explore_slots=min(explore_slots, k // 8)
+            feedback,
+            genres=user.favorite_genres or [],
+            k=k,
+            explore_slots=min(explore_slots, k // 8),
+            diversity=settings.recommendation_diversity,
+            max_per_author=settings.recommendation_max_per_author,
         )
         n_explicit = sum(abs(w) >= 1 for w in feedback.values())
         return recs, min(1.0, n_explicit / 10)
@@ -51,7 +58,7 @@ def load_service(db: Session) -> RecommenderService:
     rows = db.execute(
         select(
             Book.id, Book.content_embedding, Book.cf_factors, Book.cf_bias,
-            Book.ratings_count, Book.avg_rating, Book.genres,
+            Book.ratings_count, Book.avg_rating, Book.genres, Book.authors,
         ).order_by(Book.id)
     ).all()
     if not rows:
@@ -65,6 +72,7 @@ def load_service(db: Session) -> RecommenderService:
         genres=[r.genres or [] for r in rows],
         cf_factors=np.vstack([np.asarray(r.cf_factors, dtype=np.float32) for r in rows]) if has_cf else None,
         cf_bias=np.array([r.cf_bias or 0.0 for r in rows]) if has_cf else None,
+        authors=[r.authors for r in rows],
     )
     ids = np.array([r.id for r in rows])
     meta = db.get(ModelMeta, "manifest")

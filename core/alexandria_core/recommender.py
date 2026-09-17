@@ -46,6 +46,7 @@ class CatalogArrays:
     genres: Sequence[Sequence[str]]  # genre slugs per book
     cf_factors: np.ndarray | None = None  # (n, f)
     cf_bias: np.ndarray | None = None  # (n,)
+    authors: Sequence[str] | None = None  # used to cap how many picks one author gets
 
 
 @dataclass
@@ -97,6 +98,10 @@ class HybridRecommender:
         self.pop_z = zscore(np.log1p(np.asarray(catalog.popularity, dtype=np.float64)))
         self.quality_z = zscore(np.asarray(catalog.avg_rating, dtype=np.float64))
         self.item_genres = [list(g) for g in catalog.genres]
+        # Primary author only: "Stephen King, Owen King" and "Stephen King" count as the same author.
+        self.item_author = (
+            [a.split(",")[0].strip().lower() for a in catalog.authors] if catalog.authors is not None else None
+        )
 
         self.has_cf = catalog.cf_factors is not None
         if self.has_cf:
@@ -185,6 +190,7 @@ class HybridRecommender:
         diversity: float = 0.25,
         explore_slots: int = 0,
         seed: int | None = None,
+        max_per_author: int | None = None,
     ) -> list[Recommendation]:
         genres = [g for g in genres if g in self.genre_anchors]
         s = self.score(feedback, genres)
@@ -217,9 +223,10 @@ class HybridRecommender:
         n_explore = min(explore_slots, max(k - 1, 0))
         n_main = k - n_explore
         if diversity > 0:
-            main = mmr_rerank(pool, total[pool], self.content, n_main, lambda_=1.0 - diversity)
+            ranked = mmr_rerank(pool, total[pool], self.content, len(pool), lambda_=1.0 - diversity)
         else:
-            main = pool[:n_main]
+            ranked = pool
+        main = self._cap_authors(ranked, n_main, max_per_author)
 
         explore: np.ndarray = np.array([], dtype=np.int64)
         if n_explore:
@@ -239,6 +246,24 @@ class HybridRecommender:
             recs.insert(position, rec)
         return recs
 
+    def _cap_authors(self, ranked: np.ndarray, n: int, max_per_author: int | None) -> np.ndarray:
+        """Take the first ``n`` items, allowing at most ``max_per_author`` per author (backfilling if short)."""
+        if not max_per_author or self.item_author is None:
+            return ranked[:n]
+        counts: dict[str, int] = {}
+        kept, overflow = [], []
+        for i in ranked:
+            author = self.item_author[i]
+            if counts.get(author, 0) < max_per_author:
+                counts[author] = counts.get(author, 0) + 1
+                kept.append(i)
+                if len(kept) == n:
+                    break
+            else:
+                overflow.append(i)
+        kept.extend(overflow[: n - len(kept)])
+        return np.array(kept, dtype=np.int64)
+
     def _explain(
         self,
         i: int,
@@ -251,9 +276,14 @@ class HybridRecommender:
         rec = Recommendation(index=i, score=score, reason="popular", components=components)
 
         if len(pos_items):
-            sims = self.content[pos_items] @ self.content[i]
-            rec.because_of = int(pos_items[int(np.argmax(sims))])
             rec.reason = "collaborative" if components["cf"] > components["content"] else "similar"
+            if rec.reason == "collaborative":
+                # Explain with the liked book whose *latent factors* are closest (what CF actually used).
+                vecs = self.cf_factors[pos_items]
+                sims = (vecs @ self.cf_factors[i]) / np.maximum(np.linalg.norm(vecs, axis=1), 1e-9)
+            else:
+                sims = self.content[pos_items] @ self.content[i]
+            rec.because_of = int(pos_items[int(np.argmax(sims))])
         elif genres:
             matched = [g for g in genres if g in self.item_genres[i]]
             if matched:
