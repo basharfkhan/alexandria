@@ -17,13 +17,18 @@ further down the ranking are mixed in so the profile does not collapse into a bu
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 import numpy as np
 
 from alexandria_core.foldin import ImplicitFoldIn
 from alexandria_core.ranking import cf_weight, mmr_rerank, zscore
+
+if TYPE_CHECKING:
+    from alexandria_core.rerank import Reranker
 
 FEEDBACK_WEIGHTS: dict[str, float] = {
     "loved": 2.0,
@@ -34,6 +39,18 @@ FEEDBACK_WEIGHTS: dict[str, float] = {
 }
 
 GENRE_ANCHOR_SIZE = 50
+RERANK_POOL = 200
+
+_SERIES = re.compile(r"\(([^()#]*?),?\s*#\s*(\d+(?:\.\d+)?)[^()]*\)\s*$")
+
+
+def parse_series(title: str) -> tuple[str | None, float]:
+    """Goodreads titles encode series as "The Well of Ascension (Mistborn, #2)"."""
+    m = _SERIES.search(title or "")
+    if not m:
+        return None, float("nan")
+    name = re.sub(r"^the\s+", "", m.group(1).strip().lower())
+    return (name or None), float(m.group(2))
 
 
 @dataclass
@@ -47,6 +64,7 @@ class CatalogArrays:
     cf_factors: np.ndarray | None = None  # (n, f)
     cf_bias: np.ndarray | None = None  # (n,)
     authors: Sequence[str] | None = None  # used to cap how many picks one author gets
+    titles: Sequence[str] | None = None  # used to detect series ("Title (Series, #2)")
 
 
 @dataclass
@@ -57,6 +75,13 @@ class Recommendation:
     because_of: int | None = None  # catalog index of the book that explains it
     genre: str | None = None
     components: dict[str, float] = field(default_factory=dict)
+
+
+@dataclass
+class Blend:
+    raw: dict  # per-signal raw scores from HybridRecommender.score()
+    parts: dict[str, np.ndarray]  # weighted, standardised signal contributions
+    total: np.ndarray  # first-stage score per catalog item
 
 
 @dataclass
@@ -103,7 +128,12 @@ class HybridRecommender:
             [a.split(",")[0].strip().lower() for a in catalog.authors] if catalog.authors is not None else None
         )
 
+        series = [parse_series(t) for t in catalog.titles] if catalog.titles is not None else []
+        self.item_series = [s for s, _ in series] if series else [None] * self.n_items
+        self.item_series_no = np.array([n for _, n in series]) if series else np.full(self.n_items, np.nan)
+
         self.has_cf = catalog.cf_factors is not None
+        self.cf_bias = np.zeros(self.n_items)
         if self.has_cf:
             self.cf_factors = np.asarray(catalog.cf_factors, dtype=np.float64)
             self.cf_bias = (
@@ -181,6 +211,34 @@ class HybridRecommender:
             "n_explicit": float(n_explicit),
         }
 
+    def blend(self, feedback: Mapping[int, float], genres: Sequence[str]) -> Blend:
+        """First-stage scores: the weighted hybrid of every signal over the whole catalog."""
+        s = self.score(feedback, genres)
+        w_cf = float(s["w_cf"])
+        has_taste = bool(feedback) or bool(genres)
+        parts = {
+            "content": (1.0 - w_cf) * zscore(s["content"]) if has_taste else np.zeros(self.n_items),
+            "cf": w_cf * zscore(s["cf"]) if w_cf > 0 else np.zeros(self.n_items),
+            "genre": self.w.genre * s["genre"],
+            "popularity": self.w.popularity * self.pop_z * (1.0 if has_taste else 4.0),
+            "quality": self.w.quality * self.quality_z,
+        }
+        return Blend(raw=s, parts=parts, total=sum(parts.values()))
+
+    def candidates(
+        self, blend: Blend, feedback: Mapping[int, float], exclude: Iterable[int], size: int
+    ) -> np.ndarray:
+        """Top ``size`` unseen books by first-stage score, best first."""
+        blocked = np.zeros(self.n_items, dtype=bool)
+        for i in list(exclude) + list(feedback.keys()):
+            blocked[i] = True
+        total = np.where(blocked, -np.inf, blend.total)
+        size = min(size, int((~blocked).sum()))
+        if size <= 0:
+            return np.array([], dtype=np.int64)
+        pool = np.argpartition(-total, size - 1)[:size]
+        return pool[np.argsort(-total[pool])]
+
     def recommend(
         self,
         feedback: Mapping[int, float],
@@ -191,34 +249,23 @@ class HybridRecommender:
         explore_slots: int = 0,
         seed: int | None = None,
         max_per_author: int | None = None,
+        reranker: Reranker | None = None,
     ) -> list[Recommendation]:
         genres = [g for g in genres if g in self.genre_anchors]
-        s = self.score(feedback, genres)
-        w_cf = float(s["w_cf"])
-        has_taste = bool(feedback) or bool(genres)
-
-        parts = {
-            "content": (1.0 - w_cf) * zscore(s["content"]) if has_taste else np.zeros(self.n_items),
-            "cf": w_cf * zscore(s["cf"]) if w_cf > 0 else np.zeros(self.n_items),
-            "genre": self.w.genre * s["genre"],
-            "popularity": self.w.popularity * self.pop_z * (1.0 if has_taste else 4.0),
-            "quality": self.w.quality * self.quality_z,
-        }
-        total = sum(parts.values())
-
-        blocked = np.zeros(self.n_items, dtype=bool)
-        for i in list(exclude) + list(feedback.keys()):
-            blocked[i] = True
-        total = np.where(blocked, -np.inf, total)
-
-        n_valid = int((~blocked).sum())
-        k = min(k, n_valid)
+        blend = self.blend(feedback, genres)
+        parts = blend.parts
+        pool = self.candidates(blend, feedback, exclude, max(RERANK_POOL, k * 10))
+        k = min(k, len(pool))
         if k == 0:
             return []
 
-        pool_size = min(n_valid, max(200, k * 10))
-        pool = np.argpartition(-total, pool_size - 1)[:pool_size]
-        pool = pool[np.argsort(-total[pool])]
+        # Second stage: a learned ranker reorders the candidate pool. It is trained on readers with
+        # at least one liked book, so genre-only cold starts keep the first-stage order.
+        total = blend.total.copy()
+        if reranker is not None and any(w > 0 for w in feedback.values()):
+            rank_scores = reranker.score(self, blend, feedback, genres, pool)
+            total[pool] = rank_scores
+            pool = pool[np.argsort(-rank_scores, kind="stable")]
 
         n_explore = min(explore_slots, max(k - 1, 0))
         n_main = k - n_explore
