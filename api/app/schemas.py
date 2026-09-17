@@ -37,6 +37,10 @@ class BookOut(BaseModel):
     genres: list[str]
 
 
+class BookDetailOut(BookOut):
+    description: str | None = None
+
+
 class GenreOut(BaseModel):
     slug: str
     count: int

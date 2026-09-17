@@ -53,7 +53,10 @@ def main(argv=None) -> dict:
 
     # 1. Data
     raw_dir = make_synthetic(DATA_DIR / "synthetic_raw") if args.synthetic else download_goodbooks(RAW_DIR)
-    ds = build_dataset(raw_dir)
+    enrichment = None if args.synthetic else DATA_DIR / "openlibrary" / "works.jsonl"
+    if enrichment is not None and not enrichment.exists():
+        log.warning("no Open Library enrichment found - run `python -m alexandria_ml.data.openlibrary` for descriptions")
+    ds = build_dataset(raw_dir, enrichment_path=enrichment)
     processed = PROCESSED_DIR / ("synthetic" if args.synthetic else "goodbooks")
     save_dataset(ds, processed)
 

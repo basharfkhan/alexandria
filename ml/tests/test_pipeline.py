@@ -35,6 +35,32 @@ def test_build_dataset(dataset):
     assert "Genres:" in book_text(dataset.books.iloc[0])
 
 
+def test_open_library_enrichment(tmp_path):
+    import json as _json
+
+    from alexandria_ml.data.openlibrary import clean_description
+
+    raw = make_synthetic(tmp_path / "raw", n_books=60, n_users=40)
+    cache = tmp_path / "works.jsonl"
+    cache.write_text(
+        _json.dumps({"book_id": 1, "work": "/works/OL1W", "match": "isbn", "cover_id": 42,
+                     "description": "A heist crew of thieves takes on a city of alchemy and debt.",
+                     "subjects": ["series:Crows", "Thieves", "Heists", "Accessible book"]}) + "\n",
+        encoding="utf-8",
+    )
+    ds = build_dataset(raw, enrichment_path=cache)
+    first, second = ds.books.iloc[0], ds.books.iloc[1]
+    assert first.description.startswith("A heist crew") and first.subjects == ["thieves", "heists"]
+    assert first.image_url == "https://covers.openlibrary.org/b/id/42-M.jpg"
+    assert not isinstance(second.description, str) and second.subjects == []
+    text = book_text(first)
+    assert "A heist crew" in text and "Subjects: thieves, heists." in text
+
+    raw_description = {"value": "A long saga about [dragons](https://x.y) and the riders who love them.\n----------\nContains: stuff"}
+    assert clean_description(raw_description) == "A long saga about dragons and the riders who love them."
+    assert clean_description("too short") is None
+
+
 def test_split_holds_out_positives_only(dataset):
     train, test = train_test_split_by_user(dataset.ratings)
     assert len(train) + len(test) == len(dataset.ratings)

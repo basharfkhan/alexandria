@@ -13,6 +13,10 @@ export interface Book {
   genres: string[];
 }
 
+export interface BookDetail extends Book {
+  description: string | null;
+}
+
 export interface User {
   id: number;
   username: string;
@@ -128,7 +132,7 @@ export const api = {
   search: (q: string, limit = 8) => request<Book[]>(`/books/search?q=${encodeURIComponent(q)}&limit=${limit}`),
   popular: (genre?: string, limit = 12) =>
     request<Book[]>(`/books/popular?limit=${limit}${genre ? `&genre=${encodeURIComponent(genre)}` : ""}`),
-  book: (id: number) => request<Book>(`/books/${id}`),
+  book: (id: number) => request<BookDetail>(`/books/${id}`),
   similar: (id: number, limit = 12) => request<Book[]>(`/books/${id}/similar?limit=${limit}`),
 
   onboard: (payload: OnboardingPayload) => request<User>("/me/onboarding", { method: "POST", body: json(payload) }),

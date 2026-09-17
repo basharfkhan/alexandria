@@ -23,6 +23,13 @@ def test_auth_flow(client):
     assert client.get("/me/recommendations").status_code == 401
 
 
+def test_book_detail_includes_description(client):
+    detail = client.get("/books/1").json()
+    assert detail["description"] == "A fantasy story, number 1."
+    assert client.get("/books/2").json()["description"] is None
+    assert "description" not in client.get("/books/search", params={"q": "fantasy"}).json()[0]
+
+
 def test_search_and_similar(client):
     results = client.get("/books/search", params={"q": "romance book"}).json()
     assert results and all("Romance" in b["title"] for b in results)

@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Index, Integer, String, UniqueConstraint
+from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.config import get_settings
@@ -39,6 +39,7 @@ class Book(Base):
     image_url: Mapped[str | None] = mapped_column(String(500))
     genres: Mapped[list[str]] = mapped_column(JSON, default=list)
     tags: Mapped[list[str]] = mapped_column(JSON, default=list)
+    description: Mapped[str | None] = mapped_column(Text)  # from Open Library
 
     content_embedding = mapped_column(Vector(settings.content_dim), nullable=False)
     cf_factors = mapped_column(Vector(settings.cf_dim), nullable=True)

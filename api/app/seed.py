@@ -39,7 +39,8 @@ def seed(artifact_dir: Path, batch_size: int = 1000) -> int:
                 row = Book(
                     id=b["book_id"], title=b["title"][:500], authors=b["authors"][:500], year=b["year"],
                     avg_rating=b["avg_rating"], ratings_count=b["ratings_count"], image_url=b["image_url"],
-                    genres=b["genres"], tags=b["tags"], content_embedding=content[i],
+                    genres=b["genres"], tags=b["tags"], description=b.get("description"),
+                    content_embedding=content[i],
                     cf_factors=factors[i], cf_bias=float(bias[i]),
                 )
                 if fresh:

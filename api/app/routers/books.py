@@ -3,7 +3,7 @@ from sqlalchemy import select
 
 from app.db import is_postgres
 from app.models import Book
-from app.schemas import BookOut, GenreOut
+from app.schemas import BookDetailOut, BookOut, GenreOut
 from app.security import DB
 from app.services.catalog import search_books
 from app.services.recommender import get_service
@@ -28,7 +28,7 @@ def popular(db: DB, genre: str | None = None, limit: int = Query(24, le=100)):
     return [books[i] for i in ids]
 
 
-@router.get("/books/{book_id}", response_model=BookOut)
+@router.get("/books/{book_id}", response_model=BookDetailOut)
 def get_book(book_id: int, db: DB):
     book = db.get(Book, book_id)
     if not book:

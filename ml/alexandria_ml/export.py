@@ -33,6 +33,7 @@ def export_artifacts(
                 "image_url": row.image_url or None,
                 "genres": list(row.genres),
                 "tags": list(row.tags),
+                "description": row.description if isinstance(getattr(row, "description", None), str) else None,
             }
         )
     (out_dir / "books.json").write_text(json.dumps(records, ensure_ascii=False), encoding="utf-8")

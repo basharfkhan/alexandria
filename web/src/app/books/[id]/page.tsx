@@ -6,13 +6,13 @@ import { useEffect, useState } from "react";
 
 import { BookCover } from "@/components/BookCover";
 import { FeedbackButtons } from "@/components/FeedbackButtons";
-import { api, genreLabel, type Book, type Signal } from "@/lib/api";
+import { api, genreLabel, type Book, type BookDetail, type Signal } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 
 export default function BookPage() {
   const { id } = useParams<{ id: string }>();
   const { user } = useAuth();
-  const [book, setBook] = useState<Book | null>(null);
+  const [book, setBook] = useState<BookDetail | null>(null);
   const [similar, setSimilar] = useState<Book[]>([]);
   const [signal, setSignal] = useState<Signal | null>(null);
   const [notFound, setNotFound] = useState(false);
@@ -59,6 +59,7 @@ export default function BookPage() {
               </span>
             ))}
           </div>
+          {book.description && <Description text={book.description} key={book.id} />}
           {user ? (
             <div className="mt-8">
               <p className="mb-2 text-sm font-medium">Read it? Tell Alexandria:</p>
@@ -87,6 +88,29 @@ export default function BookPage() {
           </ul>
         </section>
       )}
+    </div>
+  );
+}
+
+function Description({ text }: { text: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const long = text.length > 420;
+  return (
+    <div className="mt-6 max-w-2xl">
+      <p className={`leading-relaxed whitespace-pre-line ${long && !expanded ? "line-clamp-5" : ""}`}>{text}</p>
+      <div className="mt-2 flex items-center gap-3 text-xs text-muted">
+        {long && (
+          <button onClick={() => setExpanded((e) => !e)} className="font-medium text-accent hover:underline">
+            {expanded ? "Show less" : "Read more"}
+          </button>
+        )}
+        <span>
+          Description from{" "}
+          <a href="https://openlibrary.org" target="_blank" rel="noreferrer" className="underline">
+            Open Library
+          </a>
+        </span>
+      </div>
     </div>
   );
 }

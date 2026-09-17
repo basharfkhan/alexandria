@@ -41,6 +41,7 @@ def make_artifacts(out: Path, n: int = 90) -> Path:
             "image_url": None,
             "genres": [GENRES[labels[i]]],
             "tags": [GENRES[labels[i]]],
+            "description": f"A {GENRES[labels[i]]} story, number {i + 1}." if i % 2 == 0 else None,
         }
         for i in range(n)
     ]
