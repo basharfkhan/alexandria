@@ -1,9 +1,26 @@
 # 📚 Alexandria - personalized book recommendations that learn as you read
 
+[![CI](https://github.com/basharfkhan/alexandria/actions/workflows/ci.yml/badge.svg)](https://github.com/basharfkhan/alexandria/actions/workflows/ci.yml)
+
+**[🔗 Live demo](https://alexandria-ashy.vercel.app)** · **[API docs (Swagger)](https://alexandria-api-xsyl.onrender.com/docs)** · **[Portfolio](https://basharkhan.dev)**
+
+> The API runs on Render's free tier and sleeps when idle - the first request after a quiet period
+> can take ~30-50 s while it wakes up.
+
 Alexandria is a full-stack, end-to-end recommender system. New readers describe their taste
 (through a quick genre/book picker **or** a conversation with an LLM librarian), get a tailored
 shelf immediately, and every ♥ / 👍 / 👎 they give re-tunes their recommendations in real time -
 no retraining required.
+
+**Headline result (6M Goodreads ratings):** the served hybrid recommender reaches NDCG@20 **0.242** -
+**+32%** over matrix factorization and **2.7×** a popularity baseline - while personalizing instantly
+from new feedback. [Details ↓](#offline-evaluation)
+
+| Deployment | |
+|---|---|
+| Web (Next.js) | [Vercel](https://alexandria-ashy.vercel.app) |
+| API (FastAPI, Docker) | [Render](https://alexandria-api-xsyl.onrender.com/docs) |
+| Database (Postgres + pgvector) | Neon |
 
 ```mermaid
 flowchart LR
