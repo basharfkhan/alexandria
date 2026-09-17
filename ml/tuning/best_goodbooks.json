@@ -3,7 +3,7 @@
   "foldin_reg": 0.1,
   "foldin_alpha": 5.0,
   "cf_bias": 0.0,
-  "cf_max": 0.95,
+  "cf_max": 0.8,
   "cf_half_life": 2.0,
   "popularity": 0.5,
   "quality": 0.1

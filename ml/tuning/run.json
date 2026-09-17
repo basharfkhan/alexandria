@@ -1,5 +1,5 @@
 {
-  "finished_at": 1789655158.3237596,
+  "finished_at": 1789656690.708357,
   "params": {
     "dataset": "goodbooks",
     "embedder": "sbert",
@@ -14,18 +14,18 @@
     "best.foldin_reg": 0.1,
     "best.foldin_alpha": 5.0,
     "best.cf_bias": 0.0,
-    "best.cf_max": 0.95,
+    "best.cf_max": 0.8,
     "best.cf_half_life": 2.0,
     "best.popularity": 0.5,
     "best.quality": 0.1
   },
   "metrics": {
-    "objective": 0.15599227216774825,
-    "full_ndcg_at_20": 0.1914174273835945,
-    "full_recall_at_20": 0.19082078487817655,
-    "full_coverage_at_20": 0.3165,
-    "cold5_ndcg_at_20": 0.120567116951902,
-    "cold5_recall_at_20": 0.11758564991939605,
-    "cold5_coverage_at_20": 0.3549
+    "objective": 0.15743085166272125,
+    "full_ndcg_at_20": 0.19490806708666156,
+    "full_recall_at_20": 0.1922658523064483,
+    "full_coverage_at_20": 0.2754,
+    "cold5_ndcg_at_20": 0.11995363623878094,
+    "cold5_recall_at_20": 0.11767014691534816,
+    "cold5_coverage_at_20": 0.3169
   }
 }

@@ -87,7 +87,7 @@ disliked −1, not-interested −0.5) and chosen genres `G`:
 | Table | Purpose |
 |---|---|
 | `users` | credentials (bcrypt), favorite genres, onboarding flag |
-| `books` | catalog + `content_embedding vector(384)`, `cf_factors vector(64)`, `cf_bias` |
+| `books` | catalog + Open Library `description`, `content_embedding vector(384)`, `cf_factors vector(64)`, `cf_bias` |
 | `interactions` | current signal per (user, book) - what the recommender reads |
 | `events` | append-only impressions (position, reason, model version) and feedback - for analytics & retraining |
 | `chat_usage` | one row per LLM chat turn - backs the spend limits |
@@ -129,9 +129,51 @@ What the first real-data run found:
 These results came from a bug that synthetic tests could not catch: the old defaults matched BPR on
 toy data but lost ~40% of its accuracy at real scale.
 
+## Book descriptions (Open Library)
+
+Goodbooks-10k ships no descriptions, so the first content model only saw titles, authors, genres
+and shelf tags - and "similar books" mostly matched *words in titles* (*The Martian* →
+*The Martian Chronicles*, *The Humans*; *Gone Girl* → *The Girl You Lost*).
+
+`python -m alexandria_ml.data.openlibrary` resolves each book to an Open Library work (batched ISBN
+search, then title search that must match the author's surname) and caches its description,
+subjects and cover: **9,838 matched, 8,157 with descriptions, 3,231 placeholder covers replaced**.
+
+What the experiment showed (validation split, current serving weights):
+
+| Content embedding | Objective | Full-history NDCG@20 | 5-rating NDCG@20 |
+|---|---|---|---|
+| Metadata only (title, author, genres, tags) | 0.1498 | 0.1899 | 0.1096 |
+| Description + subjects | 0.1481 | 0.1887 | 0.1075 |
+| **Mean of both (shipped)** | **0.1499** | **0.1910** | **0.1088** |
+| 70% metadata / 30% description | 0.1508 | 0.1915 | 0.1101 |
+
+- All variants are within noise on ranking accuracy: "which book will this reader rate next" is
+  dominated by collaborative patterns (series, authors, popularity), not topical similarity.
+- Qualitatively the difference is large. Descriptions turn *The Martian* → *Red Mars*, *Packing for
+  Mars*, *Leviathan Wakes*, and *The Name of the Wind* → *The Slow Regard of Silent Things*,
+  *The Way of Kings*. The 70/30 blend brought title-word matches back, so the 50/50 mean was
+  shipped: no loss in accuracy, most of the semantic gain.
+- Re-tuning the blend on description embeddings preferred a popularity weight of 0.5, which trades
+  away catalog coverage (~32%) - the same trade-off rejected before.
+
+Test set with the shipped embeddings: served NDCG@20 0.241 (0.242 before), coverage@20 54.3% (53.3%).
+
+Re-tuning on the shipped embeddings (`ml/tuning/results_goodbooks.csv`): the unconstrained best again
+uses popularity 0.5 (objective 0.157, but full-history coverage@20 falls to 28%). Restricted to
+configurations keeping coverage@20 ≥ 38%, the production settings remain the best (objective 0.150),
+so the serving weights were left unchanged.
+
+## Model refresh without downtime
+
+The seeder upserts books (`INSERT ... ON CONFLICT DO UPDATE`, keeping user interactions) and writes
+the model manifest last. Each API instance checks the manifest's `model_version` at most once per
+`MODEL_RELOAD_INTERVAL_S` (default 60 s) and rebuilds its in-memory recommender when it changes, so
+a new model goes live without a redeploy.
+
 ## Known limitations
 
-- Goodbooks-10k has no book descriptions; embeddings rely on titles, authors and shelf tags.
+- 18% of books still have no description; their embedding is the metadata view only.
 - The catalog is fixed at 10k popular books, so niche titles can't be matched.
 - Popularity bias in the ratings data; mitigated (not solved) by MMR and exploration.
 - Fold-in uses BPR-trained factors with an ALS-style objective - an approximation. It still trails

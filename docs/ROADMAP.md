@@ -76,7 +76,7 @@ test, and talk about in an interview. ✅ = implemented in this repo, ⬜ = next
 - [ ] Export `interactions` from production and merge with Goodbooks ratings for retraining.
 - [ ] Scheduled GitHub Action (weekly) that retrains, evaluates, and only promotes a model if
       NDCG@20 doesn't regress (model registry in MLflow).
-- [ ] Hot-reload the recommender when a new `model_version` is seeded.
+- [x] Hot-reload the recommender when a new `model_version` is seeded.
 
 ### Phase 10 - Scale the catalog: 10k → 200k books ⬜
 Goodbooks-10k only covers popular books and has no descriptions, which is why the content model is
@@ -92,13 +92,15 @@ has 2.36M books, 229M interactions and real blurbs (check its academic-use terms
 ### Phase 11 - Better models ⬜
 - [ ] Two-tower neural retrieval model (user tower over history + item tower over text features).
 - [ ] Learning-to-rank re-ranker (LightGBM LambdaMART) on candidate features + logged impressions.
-- [ ] Richer book text: pull descriptions from Open Library to improve embeddings.
+- [x] Richer book text: descriptions, subjects and covers from Open Library (improved similarity;
+      ranking accuracy unchanged - see ARCHITECTURE.md).
 - [ ] Hyperparameter search (Optuna) tracked in MLflow.
 
 ### Phase 12 - Measure online ⬜
 - [ ] Dashboard of CTR / "loved" rate by recommendation reason and position from `events`.
 - [ ] A/B test framework: assign users to ranking variants, compare engagement.
-- [ ] Alembic migrations, rate limiting, structured logging, Sentry/OpenTelemetry.
+- [x] Rate limiting on the LLM chat endpoint.
+- [ ] Alembic migrations, structured logging, Sentry/OpenTelemetry.
 
 ### Phase 13 - Product polish ⬜
 - [ ] "Chat to refine" on the Discover page ("something shorter and funnier").

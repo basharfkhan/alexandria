@@ -52,8 +52,12 @@ Free Render instances sleep when idle; the first request after a sleep takes ~30
 
 ## 5. Updating the model
 
-Retrain → re-run the seeder against Neon (it upserts books, keeping user data) → restart the
-Render service so the in-memory recommender reloads.
+1. (Optional) refresh descriptions: `python -m alexandria_ml.data.openlibrary` (resumable).
+2. Retrain: `python -m alexandria_ml.pipeline`.
+3. Re-run the seeder against Neon - it upserts books and keeps user data.
+
+The API notices the new `model_version` within `MODEL_RELOAD_INTERVAL_S` (60 s) and reloads the
+recommender by itself; no redeploy or restart needed.
 
 ## Security checklist
 

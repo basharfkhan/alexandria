@@ -12,7 +12,7 @@ Alexandria is a full-stack, end-to-end recommender system. New readers describe 
 shelf immediately, and every ♥ / 👍 / 👎 they give re-tunes their recommendations in real time -
 no retraining required.
 
-**Headline result (6M Goodreads ratings):** the served hybrid recommender reaches NDCG@20 **0.242** -
+**Headline result (6M Goodreads ratings):** the served hybrid recommender reaches NDCG@20 **0.241** -
 **+32%** over matrix factorization and **2.7×** a popularity baseline - while personalizing instantly
 from new feedback. [Details ↓](#offline-evaluation)
 
@@ -26,6 +26,7 @@ from new feedback. [Details ↓](#offline-evaluation)
 flowchart LR
     subgraph Offline["Offline ML pipeline (Python · PyTorch · MLflow)"]
         D[Goodbooks-10k<br/>6M ratings] --> P[Preprocess<br/>genre mapping]
+        OL[Open Library<br/>descriptions] --> P
         P --> E[Text embeddings<br/>MiniLM]
         P --> B[BPR matrix<br/>factorization]
         E & B --> EV[Offline eval<br/>Recall/NDCG@K]
@@ -84,7 +85,9 @@ pip install torch --index-url https://download.pytorch.org/whl/cpu
 pip install -e ./core -e "./ml[dev,tracking,sbert]" -e "./api[dev]"
 
 # 2. Train (real data: downloads ~70MB Goodbooks-10k; add --synthetic for a 10-second demo run)
-cd ml && python -m alexandria_ml.pipeline && cd ..
+cd ml
+python -m alexandria_ml.data.openlibrary     # optional: book descriptions + covers (~1 h, resumable)
+python -m alexandria_ml.pipeline && cd ..
 
 # 3. Database + seed
 docker compose up -d db                                  # or set DATABASE_URL=sqlite:///./alexandria-dev.db in api/.env
@@ -110,18 +113,22 @@ validation split (`python -m alexandria_ml.tune`), never on the test set.
 | Model | Recall@20 | NDCG@20 | Hit rate@20 | Coverage@20 |
 |---|---|---|---|---|
 | Popularity baseline | 0.083 | 0.089 | 59.4% | 0.6% |
-| Content only (MiniLM embeddings) | 0.030 | 0.026 | 27.0% | 14.5% |
+| Content only (MiniLM embeddings) | 0.026 | 0.025 | 24.1% | 16.1% |
 | BPR-MF (learned user vectors) | 0.181 | 0.183 | 86.6% | 64.6% |
-| **Hybrid + fold-in, as served** (MMR + author cap) | **0.216** | **0.242** | **90.2%** | **53.3%** |
-| Hybrid, cold start (only 5 ratings known) | 0.117 | 0.135 | 71.3% | 63.0% |
+| **Hybrid + fold-in, as served** (MMR + author cap) | **0.214** | **0.241** | **89.7%** | **54.3%** |
+| Hybrid, cold start (only 5 ratings known) | 0.115 | 0.133 | 70.0% | 65.1% |
 
 - The served hybrid beats BPR by **+32% NDCG@20** without a learned per-user embedding - new
   feedback changes recommendations instantly - and beats popularity **2.7×**.
-- With only 5 ratings it already beats the popularity baseline by **52%** NDCG@20.
+- With only 5 ratings it already beats the popularity baseline by **49%** NDCG@20.
 - Tuning mattered: the first real-data run scored 0.112 NDCG@20 with 1.9% coverage because BPR's
   item bias (a hidden popularity term) dominated every user's list. See
   [ARCHITECTURE.md → Hyper-parameter tuning](docs/ARCHITECTURE.md#hyper-parameter-tuning).
-- Weak spot: the content model (Goodbooks has no book descriptions) - addressed in roadmap Phase 10.
+- Book descriptions (8,157 of 10k, from Open Library) made "similar books" far more topical -
+  *The Martian* → *Red Mars*, *Packing for Mars* instead of *The Humans* - but did **not** move
+  ranking accuracy, which is driven by collaborative signals. Embeddings are therefore a 50/50 blend
+  of metadata and description views, chosen on the validation split. See
+  [ARCHITECTURE.md → Book descriptions](docs/ARCHITECTURE.md#book-descriptions-open-library).
 
 ## Roadmap
 
@@ -132,3 +139,4 @@ the model card are in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md); hosting step
 ## Data & license
 
 Book metadata and ratings: [Goodbooks-10k](https://github.com/zygmuntz/goodbooks-10k) (CC BY-SA 4.0).
+Book descriptions, subjects and covers: [Open Library](https://openlibrary.org/developers/licensing) (CC0).
