@@ -8,7 +8,9 @@ candidate-generation step would move into the vector index instead.
 
 from __future__ import annotations
 
+import logging
 import threading
+import time
 from dataclasses import dataclass
 
 import numpy as np
@@ -50,8 +52,11 @@ class RecommenderService:
         return recs, min(1.0, n_explicit / 10)
 
 
+log = logging.getLogger(__name__)
+
 _lock = threading.Lock()
 _service: RecommenderService | None = None
+_last_version_check = 0.0
 
 
 def load_service(db: Session) -> RecommenderService:
@@ -84,11 +89,31 @@ def load_service(db: Session) -> RecommenderService:
     )
 
 
+def _seeded_version(db: Session) -> str | None:
+    meta = db.get(ModelMeta, "manifest")
+    return (meta.value or {}).get("model_version") if meta else None
+
+
 def get_service(db: Session) -> RecommenderService:
-    global _service
+    """Return the in-memory recommender, hot-reloading it when a new model version is seeded.
+
+    Seeding writes the manifest last, so a version change means the catalog is fully updated.
+    The check is one primary-key lookup, rate limited by ``model_reload_interval_s``.
+    """
+    global _service, _last_version_check
     if _service is None:
         with _lock:
             if _service is None:
+                _service = load_service(db)
+                _last_version_check = time.monotonic()
+        return _service
+
+    if time.monotonic() - _last_version_check >= get_settings().model_reload_interval_s:
+        with _lock:
+            _last_version_check = time.monotonic()
+            version = _seeded_version(db)
+            if version != _service.model_version:
+                log.info("model version changed %s -> %s; reloading recommender", _service.model_version, version)
                 _service = load_service(db)
     return _service
 

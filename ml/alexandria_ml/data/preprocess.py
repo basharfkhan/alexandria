@@ -13,6 +13,7 @@ import pandas as pd
 
 from alexandria_ml.config import POSITIVE_RATING
 from alexandria_ml.data.genres import assign_genres, is_noise_tag
+from alexandria_ml.data.openlibrary import clean_description
 
 log = logging.getLogger(__name__)
 
@@ -90,7 +91,8 @@ def build_dataset(raw_dir: Path, top_tags: int = 12, enrichment_path: Path | Non
     # --- Open Library enrichment ------------------------------------------------
     enrichment = load_enrichment(enrichment_path)
     ol = [enrichment.get(int(b), {}) for b in books.book_id]
-    books["description"] = [(r.get("description") or "")[:DESCRIPTION_MAX_CHARS] or None for r in ol]
+    # Re-clean cached descriptions so cleaning improvements apply without re-fetching.
+    books["description"] = [(clean_description(r.get("description")) or "")[:DESCRIPTION_MAX_CHARS] or None for r in ol]
     books["subjects"] = [clean_subjects(r.get("subjects") or []) for r in ol]
     ol_covers = pd.Series([OL_COVER_URL.format(r["cover_id"]) if r.get("cover_id") else "" for r in ol])
     books["image_url"] = books.image_url.where(books.image_url != "", ol_covers)
@@ -139,16 +141,21 @@ def load_dataset(processed_dir: Path) -> Dataset:
     return Dataset(books=books, ratings=pd.read_parquet(processed_dir / "ratings.parquet"))
 
 
-def book_text(row: pd.Series, description_chars: int = 600) -> str:
+def book_text(row: pd.Series, description_chars: int = 600, with_description: bool = True) -> str:
     """Text used for content embeddings.
 
     MiniLM truncates at 256 word pieces (~1,000 characters), so the pieces are ordered by how
     much they say about the book: title/author, genres, the start of the description, then
-    Open Library subjects and Goodreads shelf tags.
+    Open Library subjects and Goodreads shelf tags. ``with_description=False`` gives the
+    metadata-only view (title, author, genres, shelf tags).
     """
     parts = [f"{row.title} by {row.authors}."]
     if len(row.genres):
         parts.append("Genres: " + ", ".join(row.genres) + ".")
+    if not with_description:
+        if len(row.tags):
+            parts.append("Tags: " + ", ".join(t.replace("-", " ") for t in row.tags) + ".")
+        return " ".join(parts)
     description = row.get("description") if hasattr(row, "get") else None
     if isinstance(description, str) and description:
         cut = description[:description_chars]

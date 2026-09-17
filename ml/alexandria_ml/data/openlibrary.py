@@ -91,6 +91,7 @@ def clean_description(raw) -> str | None:
     text = re.split(r"\n-{3,}|\n\*{3,}|\(\[source\]", text)[0]  # drop "----" sections and source footers
     text = re.sub(r"\[([^\]]+)\]\([^)]*\)", r"\1", text)  # [label](url) -> label
     text = re.sub(r"\[[^\]]*\]\[\d+\]|\[\d+\]:\s*\S+", "", text)  # reference-style links
+    text = re.sub(r"(\*{1,3}|_{2,3})(\S.*?\S|\S)\1", r"\2", text)  # **bold**, *italic*, __bold__ -> text
     text = re.sub(r"\s+", " ", text).strip()
     return text if len(text) >= 40 else None
 

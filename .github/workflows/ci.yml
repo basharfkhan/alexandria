@@ -71,6 +71,9 @@ jobs:
       - name: Seed Postgres
         working-directory: api
         run: python -m app.seed --artifacts ../ml/artifacts
+      - name: Re-seed (exercises the ON CONFLICT upsert path used for model refreshes)
+        working-directory: api
+        run: python -m app.seed --artifacts ../ml/artifacts
       - name: Smoke test
         working-directory: api
         run: |

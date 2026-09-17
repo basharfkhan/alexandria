@@ -16,11 +16,11 @@ from pathlib import Path
 
 from alexandria_ml.config import ARTIFACT_DIR, CF_DIM, DATA_DIR, POSITIVE_RATING, PROCESSED_DIR, RAW_DIR
 from alexandria_ml.data.download import download_goodbooks
-from alexandria_ml.data.preprocess import book_text, build_dataset, save_dataset, train_test_split_by_user
+from alexandria_ml.data.preprocess import build_dataset, save_dataset, train_test_split_by_user
 from alexandria_ml.data.synthetic import make_synthetic
 from alexandria_ml.evaluate import evaluate_models
 from alexandria_ml.export import export_artifacts
-from alexandria_ml.features.embeddings import cached_embeddings
+from alexandria_ml.features.embeddings import content_embeddings
 from alexandria_ml.models.bpr import BPRConfig, train_bpr
 from alexandria_ml.tracking import Tracker
 
@@ -61,10 +61,9 @@ def main(argv=None) -> dict:
     save_dataset(ds, processed)
 
     # 2. Content embeddings
-    texts = ds.books.apply(book_text, axis=1).tolist()
-    content, method = cached_embeddings(texts, processed, args.embedder)
+    content, method = content_embeddings(ds.books, processed, args.embedder)
     tracker.log_params({"embedder": method})
-    log.info("embedded %d books with %s -> %s", len(texts), method, content.shape)
+    log.info("embedded %d books with %s -> %s", len(ds.books), method, content.shape)
 
     # 3. Split + train
     train, test = train_test_split_by_user(ds.ratings)

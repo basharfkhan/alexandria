@@ -15,6 +15,7 @@ from pathlib import Path
 import numpy as np
 
 from alexandria_ml.config import CONTENT_DIM, SBERT_MODEL
+from alexandria_ml.data.preprocess import book_text
 
 log = logging.getLogger(__name__)
 
@@ -53,6 +54,23 @@ def embed_books(texts: Sequence[str], method: str = "auto") -> tuple[np.ndarray,
                 raise
             log.warning("sentence-transformers not installed; falling back to TF-IDF embeddings")
     return embed_tfidf(texts), "tfidf"
+
+
+def content_embeddings(books, cache_dir: Path, method: str = "auto") -> tuple[np.ndarray, str]:
+    """Two-field book embedding: mean of a metadata embedding and a description embedding.
+
+    Chosen on the validation split (see docs/ARCHITECTURE.md): description-only embeddings gave
+    better "similar books" but slightly lower ranking accuracy; metadata-only embeddings matched
+    titles word-for-word ("The Martian" -> "The Martian Chronicles", "The Humans"). The 50/50 mean
+    kept validation accuracy equal to metadata-only while keeping most of the semantic gains.
+    Books without descriptions fall back to the metadata embedding.
+    """
+    meta_texts = books.apply(lambda row: book_text(row, with_description=False), axis=1).tolist()
+    meta, used = cached_embeddings(meta_texts, cache_dir, method)
+    if "description" not in books or not books.description.map(lambda d: isinstance(d, str)).any():
+        return meta, used
+    full, _ = cached_embeddings(books.apply(book_text, axis=1).tolist(), cache_dir, used)
+    return _normalize(_normalize(meta) + _normalize(full)), used
 
 
 def cached_embeddings(texts: Sequence[str], cache_dir: Path, method: str = "auto") -> tuple[np.ndarray, str]:

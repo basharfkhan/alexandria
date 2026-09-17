@@ -28,9 +28,9 @@ import torch
 from alexandria_core import HybridRecommender
 from alexandria_core.recommender import Weights
 from alexandria_ml.config import DATA_DIR, ML_ROOT, POSITIVE_RATING, PROCESSED_DIR
-from alexandria_ml.data.preprocess import book_text, load_dataset, train_test_split_by_user
+from alexandria_ml.data.preprocess import load_dataset, train_test_split_by_user
 from alexandria_ml.evaluate import build_context, catalog_arrays, hybrid_metrics
-from alexandria_ml.features.embeddings import cached_embeddings
+from alexandria_ml.features.embeddings import content_embeddings
 from alexandria_ml.models.bpr import BPRMF, BPRConfig, train_bpr
 from alexandria_ml.tracking import Tracker
 
@@ -87,7 +87,7 @@ def main(argv=None) -> dict:
 
     processed = PROCESSED_DIR / args.dataset
     ds = load_dataset(processed)
-    content, method = cached_embeddings(ds.books.apply(book_text, axis=1).tolist(), processed)
+    content, method = content_embeddings(ds.books, processed)
 
     train, _test = train_test_split_by_user(ds.ratings, seed=42)
     fit, val = train_test_split_by_user(train, seed=7)

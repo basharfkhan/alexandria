@@ -12,6 +12,7 @@ from pathlib import Path
 
 import numpy as np
 from sqlalchemy import delete, text
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.db import SessionLocal, engine, init_db, is_postgres
 from app.models import Book, ModelMeta
@@ -29,27 +30,42 @@ def seed(artifact_dir: Path, batch_size: int = 1000) -> int:
     assert len(books) == len(content) == len(factors) == len(bias), "artifact row counts differ"
 
     init_db()
-    with SessionLocal() as db:
-        # First load: plain bulk insert. Refresh: merge by primary key so user interactions
-        # referencing existing books survive a model update.
-        fresh = db.query(Book.id).first() is None
-        for start in range(0, len(books), batch_size):
-            for i in range(start, min(start + batch_size, len(books))):
-                b = books[i]
-                row = Book(
-                    id=b["book_id"], title=b["title"][:500], authors=b["authors"][:500], year=b["year"],
-                    avg_rating=b["avg_rating"], ratings_count=b["ratings_count"], image_url=b["image_url"],
-                    genres=b["genres"], tags=b["tags"], description=b.get("description"),
-                    content_embedding=content[i],
-                    cf_factors=factors[i], cf_bias=float(bias[i]),
-                )
-                if fresh:
-                    db.add(row)
-                else:
-                    db.merge(row)
-            db.commit()
-            log.info("seeded %d/%d books", min(start + batch_size, len(books)), len(books))
+    rows = [
+        {
+            "id": b["book_id"], "title": b["title"][:500], "authors": b["authors"][:500], "year": b["year"],
+            "avg_rating": b["avg_rating"], "ratings_count": b["ratings_count"], "image_url": b["image_url"],
+            "genres": b["genres"], "tags": b["tags"], "description": b.get("description"),
+            "content_embedding": content[i], "cf_factors": factors[i], "cf_bias": float(bias[i]),
+        }
+        for i, b in enumerate(books)
+    ]
 
+    with SessionLocal() as db:
+        if is_postgres():
+            # INSERT ... ON CONFLICT DO UPDATE: one round trip per batch, and user interactions that
+            # reference existing books survive a model refresh.
+            table = Book.__table__
+            stmt = pg_insert(table)
+            stmt = stmt.on_conflict_do_update(
+                index_elements=[table.c.id],
+                set_={c.name: stmt.excluded[c.name] for c in table.columns if c.name != "id"},
+            )
+            for start in range(0, len(rows), batch_size):
+                db.execute(stmt, rows[start : start + batch_size])
+                db.commit()
+                log.info("upserted %d/%d books", min(start + batch_size, len(rows)), len(rows))
+        else:
+            fresh = db.query(Book.id).first() is None
+            for start in range(0, len(rows), batch_size):
+                for row in rows[start : start + batch_size]:
+                    if fresh:
+                        db.add(Book(**row))
+                    else:
+                        db.merge(Book(**row))
+                db.commit()
+                log.info("seeded %d/%d books", min(start + batch_size, len(rows)), len(rows))
+
+        # Written last: the API hot-reloads when it sees a new model_version (services/recommender.py).
         db.execute(delete(ModelMeta).where(ModelMeta.key == "manifest"))
         db.add(ModelMeta(key="manifest", value=manifest))
         db.commit()

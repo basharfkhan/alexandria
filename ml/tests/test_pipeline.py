@@ -55,9 +55,14 @@ def test_open_library_enrichment(tmp_path):
     assert not isinstance(second.description, str) and second.subjects == []
     text = book_text(first)
     assert "A heist crew" in text and "Subjects: thieves, heists." in text
+    meta = book_text(first, with_description=False)
+    assert "heist" not in meta and "Subjects" not in meta and meta.startswith(first.title)
 
     raw_description = {"value": "A long saga about [dragons](https://x.y) and the riders who love them.\n----------\nContains: stuff"}
     assert clean_description(raw_description) == "A long saga about dragons and the riders who love them."
+    assert clean_description("**Your books - BANNED** *You are holding* an __urgent__ story of rebellion.") == (
+        "Your books - BANNED You are holding an urgent story of rebellion."
+    )
     assert clean_description("too short") is None
 
 
