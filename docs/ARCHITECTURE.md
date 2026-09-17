@@ -90,6 +90,7 @@ disliked −1, not-interested −0.5) and chosen genres `G`:
 | `books` | catalog + `content_embedding vector(384)`, `cf_factors vector(64)`, `cf_bias` |
 | `interactions` | current signal per (user, book) - what the recommender reads |
 | `events` | append-only impressions (position, reason, model version) and feedback - for analytics & retraining |
+| `chat_usage` | one row per LLM chat turn - backs the spend limits |
 | `model_meta` | manifest of the currently seeded model |
 
 ## LLM onboarding design
@@ -101,6 +102,9 @@ disliked −1, not-interested −0.5) and chosen genres `G`:
 - The LLM never recommends books itself - it only extracts preferences. Recommendations
   always come from the evaluated model, and extracted books are confirmed by the user.
 - Errors map to HTTP 503 with a friendly message; the quiz path doesn't depend on the LLM.
+- Spend guards: each turn is recorded in `chat_usage` *before* the LLM call; per-user (hour/day)
+  and global daily caps are counted in Postgres so they survive the free instance sleeping, and a
+  per-IP in-memory window blunts one client creating many accounts. Over-limit requests get HTTP 429.
 
 ## Hyper-parameter tuning
 

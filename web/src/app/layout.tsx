@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Fraunces, Inter } from "next/font/google";
 
 import { Nav } from "@/components/Nav";
+import { ServerWakeBanner } from "@/components/ServerWakeBanner";
 import { AuthProvider } from "@/lib/auth";
 import "./globals.css";
 
@@ -19,6 +20,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       <body className="flex min-h-full flex-col font-sans">
         <AuthProvider>
           <Nav />
+          <ServerWakeBanner />
           <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-8 sm:px-6">{children}</main>
           <footer className="border-t border-line py-6 text-center text-xs text-muted">
             Alexandria · book data from Goodbooks-10k (CC BY-SA 4.0)

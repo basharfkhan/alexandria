@@ -28,6 +28,12 @@ class Settings(BaseSettings):
     llm_model: str = "claude-opus-5"
     llm_effort: str = "low"
 
+    # Chat librarian spend guards (each turn is one paid LLM call).
+    chat_limit_user_per_hour: int = 20
+    chat_limit_user_per_day: int = 60
+    chat_limit_ip_per_hour: int = 40
+    chat_limit_global_per_day: int = 300
+
     recommendation_explore_slots: int = 2
     # Keep in sync with SERVED_* in ml/alexandria_ml/evaluate.py so offline metrics describe what users see.
     recommendation_diversity: float = 0.25

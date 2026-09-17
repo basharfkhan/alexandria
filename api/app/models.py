@@ -82,6 +82,18 @@ class Event(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class ChatUsage(Base):
+    """One row per chat-librarian turn, so LLM spend limits survive restarts and scale-to-zero."""
+
+    __tablename__ = "chat_usage"
+    __table_args__ = (Index("ix_chat_usage_user_time", "user_id", "created_at"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    ip: Mapped[str | None] = mapped_column(String(45))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+
 class ModelMeta(Base):
     __tablename__ = "model_meta"
 

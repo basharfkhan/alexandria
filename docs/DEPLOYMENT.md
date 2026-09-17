@@ -60,4 +60,6 @@ Render service so the in-memory recommender reloads.
 - [ ] Strong `JWT_SECRET` (Render generates one).
 - [ ] `CORS_ORIGINS` restricted to your frontend domain.
 - [ ] Keep `ANTHROPIC_API_KEY` only in the host's secret store - never in the repo or `NEXT_PUBLIC_*` vars.
-- [ ] Consider a spend limit on the Anthropic account and rate limiting on `/chat/onboarding`.
+- [ ] Set a **monthly spend limit** in the Anthropic Console (Settings → Limits).
+- [x] `/chat/onboarding` is rate limited per user (hour/day), per IP (hour) and globally (day);
+      tune with the `CHAT_LIMIT_*` environment variables. Usage is stored in the `chat_usage` table.
