@@ -22,13 +22,13 @@ Copy the metrics from `ml/artifacts/manifest.json` into the README results table
 ## 2. Database - Neon
 
 1. Create a project → copy the connection string.
-2. Convert it for SQLAlchemy + psycopg 3:
-   `postgresql+psycopg://USER:PASSWORD@HOST/DB?sslmode=require`
+2. Use the **direct** connection (turn off "Connection pooling" in the Connect dialog) and paste it
+   as-is - the API converts `postgresql://` / `postgres://` to the `postgresql+psycopg://` driver URL.
 3. Seed from your machine (creates tables, the `vector` extension and the HNSW index):
 
 ```bash
 cd api
-DATABASE_URL="postgresql+psycopg://...?...sslmode=require" python -m app.seed --artifacts ../ml/artifacts
+DATABASE_URL="postgresql://...?sslmode=require" python -m app.seed --artifacts ../ml/artifacts
 ```
 
 ## 3. API - Render
@@ -37,7 +37,7 @@ DATABASE_URL="postgresql+psycopg://...?...sslmode=require" python -m app.seed --
 2. Render → **New → Blueprint** → select the repo (uses `render.yaml`).
 3. Set environment variables:
    - `DATABASE_URL` - the Neon URL from step 2
-   - `CORS_ORIGINS` - `["https://<your-vercel-app>.vercel.app"]`
+   - `CORS_ORIGINS` - `https://<your-vercel-app>.vercel.app,http://localhost:3000` (comma-separated)
    - `ANTHROPIC_API_KEY` - optional, enables the chat librarian
    - `JWT_SECRET` is generated automatically
 4. Verify `https://<service>.onrender.com/health` returns `{"status":"ok","books":10000}`.
