@@ -57,14 +57,14 @@ disliked −1, not-interested −0.5) and chosen genres `G`:
    `content_i = cos(profile, e_i)`.
 2. **Collaborative signal** - fold in a user vector `u` against fixed item factors `Y`:
 
-   `u = (YᵀY + Yᵢᵀ(Cᵢ − I)Yᵢ + λI)⁻¹ Yᵢᵀ Cᵢ pᵢ`,  with confidence `c = 1 + α|w|`,
+   `u = (YᵀY + Yᵢᵀ(Cᵢ − I)Yᵢ + λI)⁻¹ Yᵢᵀ Cᵢ pᵢ`,  with confidence `c = 1 + α|w|` (α = 5, λ = 1),
    target `p = +1` for positive feedback and `p = −1` for dislikes.
-   `cf_i = u·y_i + b_i`. `YᵀY` is precomputed, so each solve is `O(f³)` with `f = 64`.
+   `cf_i = u·y_i`. `YᵀY` is precomputed, so each solve is `O(f³)` with `f = 64`.
 3. **Blend** z-scored signals:
 
-   `score = (1 − w_cf)·z(content) + w_cf·z(cf) + 0.6·genre_match + 0.15·z(log popularity) + 0.1·z(avg rating)`
+   `score = (1 − w_cf)·z(content) + w_cf·z(cf) + 0.6·genre_match + 0.3·z(log popularity) + 0.1·z(avg rating)`
 
-   with `w_cf = 0.6 · n / (n + 5)` where `n` = number of explicit ratings.
+   with `w_cf = 0.8 · n / (n + 2)` where `n` = number of explicit ratings.
 4. **Filter** books already on the user's shelf.
 5. **Re-rank** the top 200 with MMR (λ = 0.75) for diversity, then insert ~1 exploration
    pick per 8 slots, sampled from lower in the ranking.
@@ -102,10 +102,31 @@ disliked −1, not-interested −0.5) and chosen genres `G`:
   always come from the evaluated model, and extracted books are confirmed by the user.
 - Errors map to HTTP 503 with a friendly message; the quiz path doesn't depend on the LLM.
 
+## Hyper-parameter tuning
+
+`python -m alexandria_ml.tune` searches the serving-path settings on a **validation** split carved
+out of the training data (the test split is never used for tuning). The objective is the mean of
+NDCG@20 with full history and NDCG@20 with only 5 ratings, so cold-start quality counts as much as
+heavy-user quality. Results are saved to `ml/tuning/` and logged to MLflow.
+
+What the first real-data run found:
+
+- **BPR's item bias must be excluded from the fold-in score.** The learned bias is essentially a
+  popularity score; with it, every user got nearly the same list (coverage@20 ≈ 2%) and NDCG@20 on
+  the validation split was 0.110. Without it: 0.174 and 42% coverage.
+- **The global Gram term (`YᵀY`) matters.** Solving only over rated items overfits heavy users
+  (full-history NDCG@20 as low as 0.034).
+- λ barely matters; α = 5 beat α = 20; letting CF take over faster (`0.8·n/(n+2)`) helped cold start.
+- **Popularity weight is a product decision, not just a metric.** 0.5 scored highest (objective
+  0.155) but covered 27% of the catalog; 0.3 kept most of the gain (0.150) at 39% coverage.
+
+These results came from a bug that synthetic tests could not catch: the old defaults matched BPR on
+toy data but lost ~40% of its accuracy at real scale.
+
 ## Known limitations
 
 - Goodbooks-10k has no book descriptions; embeddings rely on titles, authors and shelf tags.
 - The catalog is fixed at 10k popular books, so niche titles can't be matched.
 - Popularity bias in the ratings data; mitigated (not solved) by MMR and exploration.
-- Fold-in uses BPR-trained factors with an ALS-style objective - an approximation that
-  evaluation shows works well, but an ALS-trained model would make it exact.
+- Fold-in uses BPR-trained factors with an ALS-style objective - an approximation. It still trails
+  BPR's learned user vectors for heavy users; an ALS-trained model would make fold-in exact.

@@ -1,0 +1,10 @@
+{
+  "foldin_global_gram": true,
+  "foldin_reg": 1.0,
+  "foldin_alpha": 5.0,
+  "cf_bias": 0.0,
+  "cf_max": 0.8,
+  "cf_half_life": 2.0,
+  "popularity": 0.15,
+  "quality": 0.1
+}

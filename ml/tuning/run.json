@@ -1,0 +1,31 @@
+{
+  "finished_at": 1789619685.0282433,
+  "params": {
+    "dataset": "goodbooks",
+    "embedder": "sbert",
+    "max_users": 1000,
+    "dim": 64,
+    "epochs": 20,
+    "batch_size": 8192,
+    "lr": 0.005,
+    "reg": 1e-05,
+    "seed": 42,
+    "best.foldin_global_gram": true,
+    "best.foldin_reg": 1.0,
+    "best.foldin_alpha": 5.0,
+    "best.cf_bias": 0.0,
+    "best.cf_max": 0.8,
+    "best.cf_half_life": 2.0,
+    "best.popularity": 0.15,
+    "best.quality": 0.1
+  },
+  "metrics": {
+    "objective": 0.13569767226909962,
+    "full_ndcg_at_20": 0.17595880336155012,
+    "full_recall_at_20": 0.1772434819781182,
+    "full_coverage_at_20": 0.4893,
+    "cold5_ndcg_at_20": 0.09543654117664915,
+    "cold5_recall_at_20": 0.09199465470030486,
+    "cold5_coverage_at_20": 0.5711
+  }
+}

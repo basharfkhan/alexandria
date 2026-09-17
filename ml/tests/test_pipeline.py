@@ -38,6 +38,20 @@ def test_split_holds_out_positives_only(dataset):
     assert merged.empty
 
 
+def test_export_handles_non_ascii_titles(tmp_path):
+    """Regression: on Windows the default cp1252 codec crashed on titles like 'İstanbul'."""
+    import pandas as pd
+
+    from alexandria_ml.export import export_artifacts
+
+    books = pd.DataFrame([{
+        "book_id": 1, "title": "İstanbul: Memories and the City", "authors": "Orhan Pamuk", "year": 2003,
+        "avg_rating": 3.9, "ratings_count": 100, "image_url": "", "genres": ["memoir"], "tags": ["turkey"],
+    }])
+    export_artifacts(tmp_path, books, np.zeros((1, 384)), np.zeros((1, 64)), np.zeros(1), manifest={})
+    assert json.loads((tmp_path / "books.json").read_text(encoding="utf-8"))[0]["title"].startswith("İstanbul")
+
+
 def test_full_pipeline_beats_popularity(tmp_path, monkeypatch):
     monkeypatch.setenv("ALEXANDRIA_DISABLE_MLFLOW", "1")
     monkeypatch.setattr("alexandria_ml.pipeline.DATA_DIR", tmp_path / "data")

@@ -29,7 +29,7 @@ flowchart LR
 |---|---|
 | **Cold start** - a new user has no history | Content embeddings + genre "anchor" vectors give good picks from just a few genres/books. |
 | **Real-time personalization** | Instead of retraining, each request *folds in* a user vector from their feedback against the learned item factors (closed-form weighted ridge regression, <1 ms). |
-| **Balancing signals** | Collaborative-filtering weight grows with the amount of feedback (`w_cf = 0.6·n/(n+5)`), shifting from content-based to CF as the model learns you. |
+| **Balancing signals** | Collaborative-filtering weight grows with the amount of feedback (`w_cf = 0.8·n/(n+2)`, tuned on a validation split), shifting from content-based to CF as the model learns you. |
 | **Filter bubbles** | MMR re-ranking for diversity, plus "explore" slots sampled from further down the ranking. |
 | **Trust** | Every recommendation carries a reason: *"Because you enjoyed Mistborn"*, *"Readers who loved Dune also loved this"*. |
 | **Train/serve skew** | The ranking logic lives in one numpy package (`core/`) used by *both* offline evaluation and the API - what's benchmarked is what's served. |

@@ -20,7 +20,7 @@ from alexandria_ml.data.preprocess import book_text, build_dataset, save_dataset
 from alexandria_ml.data.synthetic import make_synthetic
 from alexandria_ml.evaluate import evaluate_models
 from alexandria_ml.export import export_artifacts
-from alexandria_ml.features.embeddings import embed_books
+from alexandria_ml.features.embeddings import cached_embeddings
 from alexandria_ml.models.bpr import BPRConfig, train_bpr
 from alexandria_ml.tracking import Tracker
 
@@ -54,11 +54,12 @@ def main(argv=None) -> dict:
     # 1. Data
     raw_dir = make_synthetic(DATA_DIR / "synthetic_raw") if args.synthetic else download_goodbooks(RAW_DIR)
     ds = build_dataset(raw_dir)
-    save_dataset(ds, PROCESSED_DIR / ("synthetic" if args.synthetic else "goodbooks"))
+    processed = PROCESSED_DIR / ("synthetic" if args.synthetic else "goodbooks")
+    save_dataset(ds, processed)
 
     # 2. Content embeddings
     texts = ds.books.apply(book_text, axis=1).tolist()
-    content, method = embed_books(texts, args.embedder)
+    content, method = cached_embeddings(texts, processed, args.embedder)
     tracker.log_params({"embedder": method})
     log.info("embedded %d books with %s -> %s", len(texts), method, content.shape)
 

@@ -33,3 +33,14 @@ Thumbs.db
 
 # Logs
 *.log
+.neon
+node_modules/
+
+# Local Neon CLI setup (sample function, config tooling, agent skills) - not part of the app
+.env.local
+neon.ts
+hello.ts
+/package.json
+/package-lock.json
+skills-lock.json
+.claude/

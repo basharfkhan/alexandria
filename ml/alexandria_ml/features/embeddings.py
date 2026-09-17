@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Sequence
+from pathlib import Path
 
 import numpy as np
 
@@ -51,3 +52,18 @@ def embed_books(texts: Sequence[str], method: str = "auto") -> tuple[np.ndarray,
                 raise
             log.warning("sentence-transformers not installed; falling back to TF-IDF embeddings")
     return embed_tfidf(texts), "tfidf"
+
+
+def cached_embeddings(texts: Sequence[str], cache_dir: Path, method: str = "auto") -> tuple[np.ndarray, str]:
+    """Embed once per dataset; MiniLM over 10k books takes minutes on CPU."""
+    for candidate in (["sbert", "tfidf"] if method == "auto" else [method]):
+        path = cache_dir / f"content_{candidate}.npy"
+        if path.exists():
+            emb = np.load(path)
+            if len(emb) == len(texts):
+                log.info("loaded cached %s embeddings from %s", candidate, path)
+                return emb, candidate
+    emb, used = embed_books(texts, method)
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    np.save(cache_dir / f"content_{used}.npy", emb)
+    return emb, used

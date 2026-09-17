@@ -35,7 +35,7 @@ def export_artifacts(
                 "tags": list(row.tags),
             }
         )
-    (out_dir / "books.json").write_text(json.dumps(records, ensure_ascii=False))
+    (out_dir / "books.json").write_text(json.dumps(records, ensure_ascii=False), encoding="utf-8")
 
     np.save(out_dir / "content_embeddings.npy", content.astype(np.float32))
     np.save(out_dir / "cf_factors.npy", cf_factors.astype(np.float32))
@@ -50,5 +50,5 @@ def export_artifacts(
     }
     # Round-trip through JSON to turn numpy scalars into floats and NaN into null.
     clean = json.loads(json.dumps(manifest, default=float), parse_constant=lambda _: None)
-    (out_dir / "manifest.json").write_text(json.dumps(clean, indent=2))
+    (out_dir / "manifest.json").write_text(json.dumps(clean, indent=2), encoding="utf-8")
     return out_dir

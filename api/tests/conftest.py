@@ -14,7 +14,8 @@ import pytest
 _tmp = Path(tempfile.mkdtemp(prefix="alexandria-test-"))
 os.environ["DATABASE_URL"] = f"sqlite:///{(_tmp / 'test.db').as_posix()}"
 os.environ["JWT_SECRET"] = "test-secret-that-is-at-least-32-bytes-long"
-os.environ.pop("ANTHROPIC_API_KEY", None)
+# Environment variables override api/.env, so a developer's real key is never used by tests.
+os.environ["ANTHROPIC_API_KEY"] = ""
 
 from fastapi.testclient import TestClient  # noqa: E402
 

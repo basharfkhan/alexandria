@@ -60,13 +60,22 @@ class Recommendation:
 
 @dataclass
 class Weights:
+    """Blend weights. Defaults were tuned on a Goodbooks-10k validation split (see ml/alexandria_ml/tune.py).
+
+    `popularity` trades accuracy against catalog coverage: 0.5 scored ~3% higher NDCG@20 than 0.3
+    but recommended from 27% of the catalog instead of 39%, so 0.3 was chosen.
+    """
+
     genre: float = 0.6
-    popularity: float = 0.15
+    popularity: float = 0.3
     quality: float = 0.1
     negative_content: float = 0.5
     genre_anchor: float = 0.5
-    cf_max: float = 0.6
-    cf_half_life: float = 5.0
+    cf_max: float = 0.8
+    cf_half_life: float = 2.0
+    # Scale on BPR's learned item bias. It is essentially a popularity score; at 1.0 it swamped the
+    # personal signal and collapsed coverage to ~2%, so popularity enters only via `popularity`.
+    cf_bias: float = 0.0
 
 
 class HybridRecommender:
@@ -74,8 +83,9 @@ class HybridRecommender:
         self,
         catalog: CatalogArrays,
         weights: Weights | None = None,
-        foldin_reg: float = 0.1,
-        foldin_alpha: float = 20.0,
+        foldin_reg: float = 1.0,
+        foldin_alpha: float = 5.0,
+        foldin_global_gram: bool = True,
     ):
         self.w = weights or Weights()
         self.n_items = len(catalog.popularity)
@@ -96,7 +106,9 @@ class HybridRecommender:
                 if catalog.cf_bias is not None
                 else np.zeros(self.n_items)
             )
-            self.foldin = ImplicitFoldIn(self.cf_factors, reg=foldin_reg, alpha=foldin_alpha)
+            self.foldin = ImplicitFoldIn(
+                self.cf_factors, reg=foldin_reg, alpha=foldin_alpha, global_gram=foldin_global_gram
+            )
 
         self._build_genre_index()
 
@@ -150,7 +162,7 @@ class HybridRecommender:
         if self.has_cf and pos.any():
             w_cf = cf_weight(n_explicit, self.w.cf_max, self.w.cf_half_life)
             user_vec = self.foldin.user_vector(idx, wts)
-            cf = self.cf_factors @ user_vec + self.cf_bias
+            cf = self.cf_factors @ user_vec + self.w.cf_bias * self.cf_bias
 
         genre_match = np.zeros(self.n_items)
         for g in genres:

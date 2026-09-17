@@ -58,7 +58,8 @@ class Tracker:
     def finish(self, out_dir: Path) -> None:
         out_dir.mkdir(parents=True, exist_ok=True)
         (out_dir / "run.json").write_text(
-            json.dumps({"finished_at": time.time(), "params": self.params, "metrics": self.metrics}, indent=2)
+            json.dumps({"finished_at": time.time(), "params": self.params, "metrics": self.metrics}, indent=2),
+            encoding="utf-8",
         )
         if self._mlflow:
             self._mlflow.end_run()

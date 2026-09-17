@@ -24,13 +24,23 @@ import numpy as np
 
 class ImplicitFoldIn:
     def __init__(
-        self, item_factors: np.ndarray, reg: float = 0.1, alpha: float = 20.0, negative_target: float = 1.0
+        self,
+        item_factors: np.ndarray,
+        reg: float = 0.1,
+        alpha: float = 20.0,
+        negative_target: float = 1.0,
+        global_gram: bool = True,
     ):
+        """
+        Args:
+            global_gram: include Y^T Y (every unrated item as a weak zero). Set False for plain
+                weighted ridge regression over the rated items only.
+        """
         self.Y = np.asarray(item_factors, dtype=np.float64)
         self.reg = reg
         self.alpha = alpha
         self.negative_target = negative_target
-        self.YtY = self.Y.T @ self.Y
+        self.YtY = self.Y.T @ self.Y if global_gram else np.zeros((self.Y.shape[1],) * 2)
         self._eye = np.eye(self.Y.shape[1])
 
     @property
