@@ -66,8 +66,8 @@ disliked −1, not-interested −0.5) and chosen genres `G`:
 
    with `w_cf = 0.8 · n / (n + 2)` where `n` = number of explicit ratings.
 4. **Filter** books already on the user's shelf.
-5. **Re-rank** the top 200 with MMR (λ = 0.75) for diversity, then insert ~1 exploration
-   pick per 8 slots, sampled from lower in the ranking.
+5. **Re-rank** the 200 candidates with the learned second-stage model (see below), then apply
+   MMR (λ = 0.75) for diversity and insert ~1 exploration pick per 8 slots.
 6. **Explain** - the reason is the dominant signal; the "because of" book is the liked book
    whose embedding is closest to the recommendation.
 
@@ -91,6 +91,7 @@ disliked −1, not-interested −0.5) and chosen genres `G`:
 | `interactions` | current signal per (user, book) - what the recommender reads |
 | `events` | append-only impressions (position, reason, model version) and feedback - for analytics & retraining |
 | `chat_usage` | one row per LLM chat turn - backs the spend limits |
+| `model_blobs` | binary model artifacts served with the catalog (the LightGBM ranker) |
 | `model_meta` | manifest of the currently seeded model |
 
 ## LLM onboarding design
@@ -128,6 +129,54 @@ What the first real-data run found:
 
 These results came from a bug that synthetic tests could not catch: the old defaults matched BPR on
 toy data but lost ~40% of its accuracy at real scale.
+
+## Second-stage ranker (learning to rank)
+
+Stage 1 is good at *retrieval*, weaker at *ordering*: on validation users 54% of held-out
+favourites land in its top 200, but only 19% reach the top 20. Stage 2 (`ml/alexandria_ml/ranker.py`)
+trains a LightGBM **LambdaMART** model to reorder those 200 candidates.
+
+**Features** (29, built in `alexandria_core/rerank.py` so training and serving share one code path):
+first-stage score and rank, each signal's contribution, similarity to *individual* liked books
+(content and latent), author continuity, series continuity (`next_in_series`, "is this book #3 of a
+series whose #2 you loved?"), item popularity/quality, and how much the reader has rated.
+
+**Protocol.** Histories from `fit`, labels from `validation` (rating 5 → 2, rating 4 → 1); 35% of
+users are truncated to 1-10 ratings so the model also learns the cold-start regime; users are split
+into training and early-stopping groups. The test split is never used for training or tuning.
+
+**The failure this exposed.** The pure ranker scored best offline (NDCG@20 0.254 vs 0.180 on
+held-out validation users) but recommended *bestsellers to everyone*: a Gone Girl fan got
+*The Fault in Our Stars* and *Divergent*, coverage@20 fell to 28%, and `cf_item_bias` - the
+popularity-like term deliberately removed from stage 1 - was its second most important feature.
+Offline relevance ("what will this reader rate next") rewards popularity; readers don't.
+Dropping the popularity-style features barely helped (coverage 28.5% → 29.5%), because popularity
+leaks in through the other signals.
+
+**What shipped.** The final score anchors the model to stage 1, both standardised over the pool:
+
+    score = z(ranker score) + 0.5 · z(stage-1 score)
+
+Chosen on held-out validation users (the test split untouched):
+
+| Stage-1 weight | NDCG@20 | Coverage@20 | A *Gone Girl* fan gets |
+|---|---|---|---|
+| stage 1 only | 0.180 | 35.0% | Girl on the Train, Sharp Objects, Dark Places |
+| 0 (pure ranker) | 0.254 | 28.5% | Divergent, To Kill a Mockingbird, Fault in Our Stars |
+| **0.5 (shipped)** | **0.236** | **30.3%** | Girl on the Train, Sharp Objects, Dark Places, Dragon Tattoo |
+| 2.0 | 0.205 | 32.6% | ≈ stage 1 |
+
+Test set, served path: NDCG@20 0.241 → **0.312** (+30%), Recall@20 0.214 → 0.283, hit-rate
+89.7% → 94.2%, cold start 0.133 → 0.158; coverage@20 54.3% → 45.9%.
+
+**Serving.** The ranker is stored in the `model_blobs` table, loaded with the catalog, and applied
+only to readers with at least one liked book (a genre-only cold start keeps stage 1's order). It can
+be switched off with `RECOMMENDATION_USE_RANKER=false`, and a model that fails to load is skipped
+rather than failing the request. Scoring 200 candidates costs ~2 ms.
+
+> Operational gotcha: LightGBM cannot parse a model file saved with Windows CRLF line endings, and
+> *aborts the process* rather than raising - artifacts are written with `newline="\n"` and
+> normalised on load.
 
 ## Book descriptions (Open Library)
 

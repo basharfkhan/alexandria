@@ -12,9 +12,9 @@ Alexandria is a full-stack, end-to-end recommender system. New readers describe 
 shelf immediately, and every ♥ / 👍 / 👎 they give re-tunes their recommendations in real time -
 no retraining required.
 
-**Headline result (6M Goodreads ratings):** the served hybrid recommender reaches NDCG@20 **0.241** -
-**+32%** over matrix factorization and **2.7×** a popularity baseline - while personalizing instantly
-from new feedback. [Details ↓](#offline-evaluation)
+**Headline result (6M Goodreads ratings):** two-stage ranking reaches NDCG@20 **0.312** -
+**+71%** over matrix factorization and **3.5×** a popularity baseline - while personalizing instantly
+from new feedback, with no retraining. [Details ↓](#offline-evaluation)
 
 | Deployment | |
 |---|---|
@@ -34,7 +34,7 @@ flowchart LR
     end
     A -- seed --> DB[(Postgres<br/>+ pgvector)]
     subgraph Online["Online serving"]
-        DB --> API[FastAPI<br/>hybrid recommender<br/>+ fold-in]
+        DB --> API[FastAPI<br/>stage 1: hybrid + fold-in<br/>stage 2: LightGBM ranker]
         LLM[Claude<br/>onboarding chat] <--> API
         API <--> WEB[Next.js app]
     end
@@ -46,6 +46,7 @@ flowchart LR
 | Problem | How Alexandria handles it |
 |---|---|
 | **Cold start** - a new user has no history | Content embeddings + genre "anchor" vectors give good picks from just a few genres/books. |
+| **Ranking** | Two stages: the hybrid blend retrieves 200 candidates, then a LightGBM LambdaMART model reorders them (+30% NDCG@20). |
 | **Real-time personalization** | Instead of retraining, each request *folds in* a user vector from their feedback against the learned item factors (closed-form weighted ridge regression, <1 ms). |
 | **Balancing signals** | Collaborative-filtering weight grows with the amount of feedback (`w_cf = 0.8·n/(n+2)`, tuned on a validation split), shifting from content-based to CF as the model learns you. |
 | **Filter bubbles** | MMR re-ranking for diversity, plus "explore" slots sampled from further down the ranking. |
@@ -57,7 +58,7 @@ flowchart LR
 
 | Layer | Tools |
 |---|---|
-| ML / data | Python, **PyTorch** (BPR-MF), **sentence-transformers**, scikit-learn, pandas, NumPy, **MLflow** experiment tracking |
+| ML / data | Python, **PyTorch** (BPR-MF), **LightGBM** (LambdaMART re-ranker), **sentence-transformers**, scikit-learn, pandas, NumPy, **MLflow** experiment tracking |
 | Backend | **FastAPI**, Pydantic v2, **SQLAlchemy 2.0**, **PostgreSQL + pgvector** (HNSW index), JWT auth, bcrypt |
 | LLM | **Anthropic Claude API** - structured outputs for preference extraction |
 | Frontend | **Next.js 16** (App Router), **React 19**, **TypeScript**, **Tailwind CSS v4** |
@@ -115,12 +116,18 @@ validation split (`python -m alexandria_ml.tune`), never on the test set.
 | Popularity baseline | 0.083 | 0.089 | 59.4% | 0.6% |
 | Content only (MiniLM embeddings) | 0.026 | 0.025 | 24.1% | 16.1% |
 | BPR-MF (learned user vectors) | 0.181 | 0.183 | 86.6% | 64.6% |
-| **Hybrid + fold-in, as served** (MMR + author cap) | **0.214** | **0.241** | **89.7%** | **54.3%** |
-| Hybrid, cold start (only 5 ratings known) | 0.115 | 0.133 | 70.0% | 65.1% |
+| Stage 1 only: hybrid + fold-in (MMR + author cap) | 0.214 | 0.241 | 89.7% | 54.3% |
+| **Stage 1 + LightGBM re-ranker, as served** | **0.283** | **0.312** | **94.2%** | **45.9%** |
+| Two-stage, cold start (only 5 ratings known) | 0.138 | 0.158 | 76.9% | 51.9% |
 
-- The served hybrid beats BPR by **+32% NDCG@20** without a learned per-user embedding - new
-  feedback changes recommendations instantly - and beats popularity **2.7×**.
-- With only 5 ratings it already beats the popularity baseline by **49%** NDCG@20.
+- Two-stage ranking beats BPR by **+71% NDCG@20** without a learned per-user embedding - new
+  feedback changes recommendations instantly - and beats popularity **3.5×**.
+- The second stage adds **+30%** over the tuned hybrid alone; with only 5 ratings known it still
+  beats the popularity baseline by **77%**.
+- It costs catalog coverage (54.3% → 45.9%): a learned ranker trained on "what will they rate
+  next" drifts towards popular books. Anchoring it to the first-stage score keeps ~75% of the gain
+  and restores on-topic lists - see
+  [ARCHITECTURE.md → Second-stage ranker](docs/ARCHITECTURE.md#second-stage-ranker-learning-to-rank).
 - Tuning mattered: the first real-data run scored 0.112 NDCG@20 with 1.9% coverage because BPR's
   item bias (a hidden popularity term) dominated every user's list. See
   [ARCHITECTURE.md → Hyper-parameter tuning](docs/ARCHITECTURE.md#hyper-parameter-tuning).

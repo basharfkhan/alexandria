@@ -91,7 +91,9 @@ has 2.36M books, 229M interactions and real blurbs (check its academic-use terms
 
 ### Phase 11 - Better models ⬜
 - [ ] Two-tower neural retrieval model (user tower over history + item tower over text features).
-- [ ] Learning-to-rank re-ranker (LightGBM LambdaMART) on candidate features + logged impressions.
+- [x] Learning-to-rank re-ranker (LightGBM LambdaMART) over the 200 stage-1 candidates:
+      +30% NDCG@20 on the test set; anchored to stage 1 to avoid popularity drift.
+- [ ] Feed logged impressions/feedback into the ranker's training data.
 - [x] Richer book text: descriptions, subjects and covers from Open Library (improved similarity;
       ranking accuracy unchanged - see ARCHITECTURE.md).
 - [ ] Hyperparameter search (Optuna) tracked in MLflow.
