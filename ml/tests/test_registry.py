@@ -68,3 +68,13 @@ def test_rejected_model_does_not_become_production(tmp_path, live_registry):
     assert [h["promoted"] for h in registry["history"]] == [True, False]
     assert json.loads(path.read_text(encoding="utf-8"))["production"] == "v1"
     assert load_registry(path)["production"] == "v1"
+
+
+def test_gate_prefers_the_like_for_like_row(live_registry):
+    """Adding unrated books costs measured accuracy, so the gate reads rerank_rated_only."""
+    candidate = manifest("v2", ndcg=0.25)  # served row drops (new books took slots)
+    candidate["metrics"]["rerank_rated_only"] = {"ndcg@20": 0.32, "recall@20": 0.29, "coverage@20": 0.47}
+    assert evaluate_candidate(live_registry, candidate).promote
+
+    candidate["metrics"]["rerank_rated_only"]["ndcg@20"] = 0.20  # the model itself got worse
+    assert not evaluate_candidate(live_registry, candidate).promote

@@ -65,13 +65,14 @@ class CatalogArrays:
     cf_bias: np.ndarray | None = None  # (n,)
     authors: Sequence[str] | None = None  # used to cap how many picks one author gets
     titles: Sequence[str] | None = None  # used to detect series ("Title (Series, #2)")
+    cold_start: Sequence[bool] | None = None  # books with no ratings (post-2017 titles)
 
 
 @dataclass
 class Recommendation:
     index: int
     score: float
-    reason: str  # "similar" | "collaborative" | "genre" | "popular" | "explore"
+    reason: str  # "similar" | "collaborative" | "genre" | "popular" | "explore" | "new_release"
     because_of: int | None = None  # catalog index of the book that explains it
     genre: str | None = None
     components: dict[str, float] = field(default_factory=dict)
@@ -126,6 +127,11 @@ class HybridRecommender:
         # Primary author only: "Stephen King, Owen King" and "Stephen King" count as the same author.
         self.item_author = (
             [a.split(",")[0].strip().lower() for a in catalog.authors] if catalog.authors is not None else None
+        )
+
+        self.is_cold_start = (
+            np.asarray(catalog.cold_start, dtype=bool) if catalog.cold_start is not None
+            else np.zeros(self.n_items, dtype=bool)
         )
 
         series = [parse_series(t) for t in catalog.titles] if catalog.titles is not None else []
@@ -226,10 +232,21 @@ class HybridRecommender:
         return Blend(raw=s, parts=parts, total=sum(parts.values()))
 
     def candidates(
-        self, blend: Blend, feedback: Mapping[int, float], exclude: Iterable[int], size: int
+        self,
+        blend: Blend,
+        feedback: Mapping[int, float],
+        exclude: Iterable[int],
+        size: int,
+        cold_start: bool | None = False,
     ) -> np.ndarray:
-        """Top ``size`` unseen books by first-stage score, best first."""
+        """Top ``size`` unseen books by first-stage score, best first.
+
+        ``cold_start`` selects the catalog half: False = books with ratings (the main pool),
+        True = never-rated books only (the new-release slots), None = both.
+        """
         blocked = np.zeros(self.n_items, dtype=bool)
+        if cold_start is not None:
+            blocked |= self.is_cold_start if not cold_start else ~self.is_cold_start
         for i in list(exclude) + list(feedback.keys()):
             blocked[i] = True
         total = np.where(blocked, -np.inf, blend.total)
@@ -249,15 +266,20 @@ class HybridRecommender:
         explore_slots: int = 0,
         seed: int | None = None,
         max_per_author: int | None = None,
+        new_book_slots: int = 0,
         reranker: Reranker | None = None,
     ) -> list[Recommendation]:
         genres = [g for g in genres if g in self.genre_anchors]
         blend = self.blend(feedback, genres)
         parts = blend.parts
+        # Never-rated books (post-2017 titles) only reach the catalog on collaborative vectors
+        # borrowed from similar rated books, so they get reserved slots instead of competing for
+        # every one: ranking quality for the rest of the page is then unaffected by catalog size.
         pool = self.candidates(blend, feedback, exclude, max(RERANK_POOL, k * 10))
-        k = min(k, len(pool))
+        k = min(k, len(pool) + new_book_slots)
         if k == 0:
             return []
+        new_book_slots = min(new_book_slots, max(k - 1, 0)) if self.is_cold_start.any() else 0
 
         # Second stage: a learned ranker reorders the candidate pool. It is trained on readers with
         # at least one liked book, so genre-only cold starts keep the first-stage order.
@@ -267,13 +289,13 @@ class HybridRecommender:
             total[pool] = rank_scores
             pool = pool[np.argsort(-rank_scores, kind="stable")]
 
-        n_explore = min(explore_slots, max(k - 1, 0))
-        n_main = k - n_explore
+        n_explore = min(explore_slots, max(k - new_book_slots - 1, 0))
+        n_main = k - n_explore - new_book_slots
         if diversity > 0:
             ranked = mmr_rerank(pool, total[pool], self.content, len(pool), lambda_=1.0 - diversity)
         else:
             ranked = pool
-        main = self._cap_authors(ranked, n_main, max_per_author)
+        main = self._select(ranked, n_main, max_per_author)
 
         explore: np.ndarray = np.array([], dtype=np.int64)
         if n_explore:
@@ -285,6 +307,18 @@ class HybridRecommender:
         pos_items = np.array([i for i, w in feedback.items() if w > 0], dtype=np.int64)
         recs = [self._explain(int(i), float(total[i]), parts, pos_items, genres) for i in main]
 
+        if new_book_slots:
+            fresh_pool = self.candidates(blend, feedback, exclude, new_book_slots * 8, cold_start=True)
+            if reranker is not None and len(fresh_pool) and any(w > 0 for w in feedback.values()):
+                fresh_scores = reranker.score(self, blend, feedback, genres, fresh_pool)
+                fresh_pool = fresh_pool[np.argsort(-fresh_scores, kind="stable")]
+                total[fresh_pool] = np.sort(fresh_scores)[::-1]
+            fresh = self._select(fresh_pool, new_book_slots, max_per_author)
+            for j, i in enumerate(fresh):
+                rec = self._explain(int(i), float(total[i]), parts, pos_items, genres)
+                rec.reason = "new_release"
+                recs.insert(min(len(recs), (j + 1) * 3), rec)
+
         # Interleave exploration picks evenly through the list.
         for j, i in enumerate(explore):
             rec = self._explain(int(i), float(total[i]), parts, pos_items, genres)
@@ -293,8 +327,8 @@ class HybridRecommender:
             recs.insert(position, rec)
         return recs
 
-    def _cap_authors(self, ranked: np.ndarray, n: int, max_per_author: int | None) -> np.ndarray:
-        """Take the first ``n`` items, allowing at most ``max_per_author`` per author (backfilling if short)."""
+    def _select(self, ranked: np.ndarray, n: int, max_per_author: int | None) -> np.ndarray:
+        """Take the first ``n`` items, allowing at most ``max_per_author`` each (backfilling if short)."""
         if not max_per_author or self.item_author is None:
             return ranked[:n]
         counts: dict[str, int] = {}

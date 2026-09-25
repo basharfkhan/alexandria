@@ -104,3 +104,34 @@ def test_genre_only_cold_start_skips_reranker(catalog):
 
     recs = rec.recommend({}, genres=["romance"], k=5, diversity=0, reranker=Reranker(Exploding()))
     assert all(r.index >= 10 for r in recs)
+
+
+def test_new_books_get_reserved_slots(catalog):
+    """Never-rated books cannot displace rated ones: they fill a fixed number of slots."""
+    catalog.cold_start = [i % 2 == 1 for i in range(20)]  # every other book has no ratings
+    rec = HybridRecommender(catalog)
+
+    without = [r.index for r in rec.recommend({0: 2.0}, k=8, diversity=0)]
+    with_slots = rec.recommend({0: 2.0}, k=8, diversity=0, new_book_slots=2)
+
+    assert all(i % 2 == 0 for i in without), "no new books unless slots are reserved"
+    assert sum(r.reason == "new_release" for r in with_slots) == 2
+    assert all(catalog.cold_start[r.index] for r in with_slots if r.reason == "new_release")
+    assert len(with_slots) == 8, "reserved slots replace ranked picks, they don't extend the page"
+    ranked = [r.index for r in with_slots if r.reason != "new_release"]
+    assert ranked == without[: len(ranked)], "the ranked picks keep their order"
+
+
+def test_new_book_slots_respect_the_author_cap(catalog):
+    catalog.cold_start = [i >= 10 for i in range(20)]
+    catalog.authors = ["Solo Author"] * 10 + ["New Writer"] * 10
+    rec = HybridRecommender(catalog)
+    recs = rec.recommend({0: 2.0}, k=8, diversity=0, max_per_author=3, new_book_slots=3)
+    assert sum(r.reason == "new_release" for r in recs) == 3
+
+
+def test_no_new_books_in_catalog_means_no_reserved_slots(catalog):
+    """A catalog of only rated books fills every slot with ranked picks."""
+    rec = HybridRecommender(catalog)
+    recs = rec.recommend({0: 2.0}, k=6, diversity=0, new_book_slots=2)
+    assert len(recs) == 6 and not any(r.reason == "new_release" for r in recs)

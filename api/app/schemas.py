@@ -35,6 +35,7 @@ class BookOut(BaseModel):
     ratings_count: int
     image_url: str | None
     genres: list[str]
+    is_new: bool = False  # published after the training data; no ratings yet
 
 
 class BookDetailOut(BookOut):
@@ -68,7 +69,7 @@ class LibraryItem(BaseModel):
 class RecommendationOut(BaseModel):
     book: BookOut
     score: float
-    reason: Literal["similar", "collaborative", "genre", "popular", "explore"]
+    reason: Literal["similar", "collaborative", "genre", "popular", "explore", "new_release"]
     explanation: str
     because_of: BookOut | None = None
 

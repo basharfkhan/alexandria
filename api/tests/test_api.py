@@ -68,6 +68,23 @@ def test_feedback_adapts_recommendations(client, auth):
     assert len(client.get("/me/library", headers=auth).json()) == 5
 
 
+def test_new_books_are_flagged_and_capped(client, auth):
+    """Unrated books reach recommendations via borrowed vectors, but only a few per page."""
+    fantasy = client.get("/books/search", params={"q": "fantasy book", "limit": 3}).json()
+    assert all("is_new" in b for b in fantasy)
+
+    client.post("/me/onboarding", json={"loved_book_ids": [b["id"] for b in fantasy]}, headers=auth)
+    items = client.get("/me/recommendations", params={"limit": 20, "explore": False}, headers=auth).json()["items"]
+
+    reserved = [r for r in items if r["reason"] == "new_release"]
+    assert len(reserved) == 2, "two slots per page are reserved for never-rated titles"
+    assert all(r["book"]["is_new"] for r in reserved)
+    assert all(not r["book"]["is_new"] for r in items if r["reason"] != "new_release"), (
+        "new books appear only in their reserved slots, never displacing ranked picks"
+    )
+    assert "New" in reserved[0]["explanation"]
+
+
 def test_onboarding_validation(client, auth):
     assert client.post("/me/onboarding", json={"genres": ["cookbooks"]}, headers=auth).status_code == 422
     assert client.post("/me/onboarding", json={"loved_book_ids": [99999]}, headers=auth).status_code == 422

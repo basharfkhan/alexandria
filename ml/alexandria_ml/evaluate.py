@@ -9,6 +9,9 @@ Models compared (all on the same held-out positives, excluding each user's train
 * hybrid_cold5       - production path given only 5 of the user's ratings (new-user scenario)
 * hybrid_served      - stage 1 as the API returns it: + MMR diversity and a 3-books-per-author cap
 * rerank_*           - the same paths with the learned second-stage ranker (when one is trained)
+* rerank_rated_only  - rerank_served without the reserved new-release slots. Those slots cost
+                       measured accuracy by construction, so the promotion gate compares this
+                       row: model quality, independent of how many slots freshness gets.
 """
 
 from __future__ import annotations
@@ -31,6 +34,7 @@ log = logging.getLogger(__name__)
 # Must match the API's settings (recommendation_diversity / recommendation_max_per_author).
 SERVED_DIVERSITY = 0.25
 SERVED_AUTHOR_CAP = 3
+SERVED_NEW_BOOK_SLOTS = 2  # reserved per page of 20 (API: recommendation_new_book_slots)
 
 RATING_TO_WEIGHT = {5: 2.0, 4: 1.0, 3: 0.0, 2: -1.0, 1: -1.0}
 
@@ -51,13 +55,14 @@ def _top_k(scores: np.ndarray, blocked: set[int], k: int) -> list[int]:
 def catalog_arrays(books: pd.DataFrame, content: np.ndarray, factors=None, bias=None) -> CatalogArrays:
     return CatalogArrays(
         content=content,
-        popularity=books.ratings_count.to_numpy(),
+        popularity=books.popularity.to_numpy() if "popularity" in books else books.ratings_count.to_numpy(),
         avg_rating=books.avg_rating.to_numpy(),
         genres=books.genres.tolist(),
         cf_factors=factors,
         cf_bias=bias,
         authors=books.authors.tolist(),
         titles=books.title.tolist(),
+        cold_start=(~books.has_ratings).tolist() if "has_ratings" in books else None,
     )
 
 
@@ -72,9 +77,13 @@ class EvalContext:
     n_items: int
     k: int
 
-    def run(self, name: str, rank_user: Callable[[int, int], list[int]]) -> dict[str, float]:
+    def run(
+        self, name: str, rank_user: Callable[[int, int], list[int]], coverage_items: int | None = None
+    ) -> dict[str, float]:
+        """``coverage_items`` overrides the catalog size used for coverage, so rows that rank a
+        subset of the catalog (e.g. rated books only) stay comparable across catalog changes."""
         rankings = {int(u): rank_user(int(u), row) for row, u in enumerate(self.users)}
-        metrics = evaluate_rankings(rankings, self.test_pos, self.n_items, ks=(10, self.k))
+        metrics = evaluate_rankings(rankings, self.test_pos, coverage_items or self.n_items, ks=(10, self.k))
         log.info("%-15s %s", name, "  ".join(f"{m}={v:.4f}" for m, v in metrics.items() if m != "n_users"))
         return metrics
 
@@ -99,7 +108,12 @@ def build_context(
 
 
 def hybrid_metrics(
-    hybrid: HybridRecommender, ctx: EvalContext, name: str, n_ratings: int | None = None, **recommend_kwargs
+    hybrid: HybridRecommender,
+    ctx: EvalContext,
+    name: str,
+    n_ratings: int | None = None,
+    coverage_items: int | None = None,
+    **recommend_kwargs,
 ) -> dict[str, float]:
     """Evaluate the serving path; ``n_ratings`` keeps only that many random ratings per user."""
 
@@ -111,7 +125,7 @@ def hybrid_metrics(
         recs = hybrid.recommend(feedback_from_ratings(ratings), k=ctx.k, exclude=ctx.seen[u], **kwargs)
         return [r.index for r in recs]
 
-    return ctx.run(name, rank)
+    return ctx.run(name, rank, coverage_items=coverage_items)
 
 
 def evaluate_models(
@@ -125,10 +139,11 @@ def evaluate_models(
     seed: int = 42,
     hybrid_kwargs: dict | None = None,
     reranker=None,
+    item_factors=None,
 ) -> dict[str, dict[str, float]]:
     ctx = build_context(train, test, len(books), k=k, max_users=max_users, seed=seed)
 
-    factors, bias = model.item_factors()
+    factors, bias = item_factors(model) if item_factors else model.item_factors()
     hybrid = HybridRecommender(catalog_arrays(books, content, factors, bias), **(hybrid_kwargs or {}))
     content_norm = hybrid.content
 
@@ -145,7 +160,8 @@ def evaluate_models(
             return _top_k(popularity, ctx.seen[u], k)
         return _top_k(content_norm @ content_norm[liked].mean(axis=0), ctx.seen[u], k)
 
-    served = {"diversity": SERVED_DIVERSITY, "max_per_author": SERVED_AUTHOR_CAP}
+    served = {"diversity": SERVED_DIVERSITY, "max_per_author": SERVED_AUTHOR_CAP,
+              "new_book_slots": SERVED_NEW_BOOK_SLOTS}
     results = {
         "popularity": ctx.run("popularity", lambda u, _: _top_k(popularity, ctx.seen[u], k)),
         "content": ctx.run("content", content_rank),
@@ -158,4 +174,11 @@ def evaluate_models(
         results["rerank_foldin"] = hybrid_metrics(hybrid, ctx, "rerank_foldin", reranker=reranker)
         results["rerank_cold5"] = hybrid_metrics(hybrid, ctx, "rerank_cold5", n_ratings=5, reranker=reranker)
         results["rerank_served"] = hybrid_metrics(hybrid, ctx, "rerank_served", reranker=reranker, **served)
+        if hybrid.is_cold_start.any():
+            # Coverage over the rated catalog only: adding never-rated books grows the
+            # denominator, which would otherwise look like a diversity regression.
+            results["rerank_rated_only"] = hybrid_metrics(
+                hybrid, ctx, "rerank_rated_only", reranker=reranker,
+                coverage_items=int((~hybrid.is_cold_start).sum()), **{**served, "new_book_slots": 0},
+            )
     return results

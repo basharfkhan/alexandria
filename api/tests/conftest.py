@@ -56,6 +56,8 @@ def make_artifacts(out: Path, n: int = 90, with_ranker: bool = True) -> Path:
             "ratings_count": 1000 + 37 * i,
             "image_url": None,
             "genres": [GENRES[labels[i]]],
+            "popularity": 1000 + 37 * i,
+            "has_ratings": i < n - 15,  # the last 15 books are unrated, post-training-data titles
             "tags": [GENRES[labels[i]]],
             "description": f"A {GENRES[labels[i]]} story, number {i + 1}." if i % 2 == 0 else None,
         }

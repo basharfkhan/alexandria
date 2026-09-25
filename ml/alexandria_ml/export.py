@@ -35,6 +35,8 @@ def export_artifacts(
                 "genres": list(row.genres),
                 "tags": list(row.tags),
                 "description": row.description if isinstance(getattr(row, "description", None), str) else None,
+                "popularity": int(getattr(row, "popularity", row.ratings_count)),
+                "has_ratings": bool(getattr(row, "has_ratings", True)),
             }
         )
     (out_dir / "books.json").write_text(json.dumps(records, ensure_ascii=False), encoding="utf-8")

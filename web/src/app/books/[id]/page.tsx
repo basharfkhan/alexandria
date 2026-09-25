@@ -52,6 +52,11 @@ export default function BookPage() {
             ★ {book.avg_rating.toFixed(2)} · {book.ratings_count.toLocaleString()} ratings
             {book.year ? ` · ${book.year}` : ""}
           </p>
+          {book.is_new && (
+            <p className="mt-2 text-sm text-moss">
+              Recently published - recommended from its description and readers of similar books.
+            </p>
+          )}
           <div className="mt-4 flex flex-wrap gap-2">
             {book.genres.map((g) => (
               <span key={g} className="rounded-full bg-moss-soft px-3 py-1 text-sm text-moss">

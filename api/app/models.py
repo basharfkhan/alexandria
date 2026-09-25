@@ -52,10 +52,19 @@ class Book(Base):
     genres: Mapped[list[str]] = mapped_column(JSON, default=list)
     tags: Mapped[list[str]] = mapped_column(JSON, default=list)
     description: Mapped[str | None] = mapped_column(Text)  # from Open Library
+    # Popularity prior for ranking. Goodbooks books use their rating count; post-2017 titles use
+    # their Open Library shelf count mapped onto the same distribution (ratings_count stays real).
+    popularity: Mapped[int | None] = mapped_column(Integer)
+    has_ratings: Mapped[bool] = mapped_column(Boolean, default=True)
 
     content_embedding = mapped_column(Vector(settings.content_dim), nullable=False)
     cf_factors = mapped_column(Vector(settings.cf_dim), nullable=True)
     cf_bias: Mapped[float | None] = mapped_column(Float)
+
+    @property
+    def is_new(self) -> bool:
+        """No ratings yet - published after the training data was collected."""
+        return not self.has_ratings
 
 
 class Interaction(Base):

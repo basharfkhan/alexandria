@@ -62,7 +62,12 @@ def load_enrichment(path: Path | None) -> dict[int, dict]:
         return {rec["book_id"]: rec for rec in map(json.loads, fh)}
 
 
-def build_dataset(raw_dir: Path, top_tags: int = 12, enrichment_path: Path | None = None) -> Dataset:
+def build_dataset(
+    raw_dir: Path,
+    top_tags: int = 12,
+    enrichment_path: Path | None = None,
+    recent_path: Path | None = None,
+) -> Dataset:
     books = pd.read_csv(raw_dir / "books.csv")
     ratings = pd.read_csv(raw_dir / "ratings.csv")
     tags = pd.read_csv(raw_dir / "tags.csv")
@@ -110,6 +115,13 @@ def build_dataset(raw_dir: Path, top_tags: int = 12, enrichment_path: Path | Non
          "genres", "tags", "description", "subjects"]
     ].rename(columns={"average_rating": "avg_rating"})
 
+    # --- books published after Goodbooks-10k (no ratings; see data/recent_merge.py) ------------
+    from alexandria_ml.data.recent_books import load_cache as load_recent
+    from alexandria_ml.data.recent_merge import merge_recent_books
+
+    recent = list(load_recent(recent_path).values()) if recent_path and recent_path.exists() else []
+    books = merge_recent_books(books, recent)
+
     # --- ratings --------------------------------------------------------------
     ratings = ratings.drop_duplicates(["user_id", "book_id"], keep="last")
     ratings = ratings.merge(books[["book_id", "item_idx"]], on="book_id")
@@ -140,6 +152,8 @@ def load_dataset(processed_dir: Path) -> Dataset:
         books["subjects"] = books.subjects.map(list)
     else:  # processed before Open Library enrichment existed
         books["subjects"], books["description"] = [[] for _ in range(len(books))], None
+    if "popularity" not in books:  # processed before recent books were merged in
+        books["popularity"], books["has_ratings"] = books.ratings_count, True
     return Dataset(books=books, ratings=pd.read_parquet(processed_dir / "ratings.parquet"))
 
 

@@ -42,6 +42,7 @@ class Settings(BaseSettings):
     # Keep in sync with SERVED_* in ml/alexandria_ml/evaluate.py so offline metrics describe what users see.
     recommendation_diversity: float = 0.25
     recommendation_max_per_author: int = 3
+    recommendation_new_book_slots: int = 2  # slots reserved per page for never-rated titles
 
     @field_validator("database_url")
     @classmethod

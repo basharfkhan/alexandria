@@ -26,21 +26,27 @@ REGISTRY_PATH = ML_ROOT / "model_registry.json"
 
 # metric path -> how much it may drop (relative) before the model is rejected
 GATE_METRICS = {
-    "rerank_served.ndcg@20": 0.02,
-    "rerank_served.recall@20": 0.02,
+    "rerank_rated_only.ndcg@20": 0.02,
+    "rerank_rated_only.recall@20": 0.02,
     "rerank_cold5.ndcg@20": 0.05,
-    "rerank_served.coverage@20": 0.10,
+    "rerank_rated_only.coverage@20": 0.10,
 }
-# A model without a ranker is compared on the stage-1 rows instead.
-STAGE1_FALLBACK = {"rerank_served": "hybrid_served", "rerank_cold5": "hybrid_cold5"}
+# Rows are looked up in order: the like-for-like row, then the served row, then the stage-1 row
+# (so a run without a ranker, or from before these rows existed, is still comparable).
+ROW_FALLBACKS = {
+    "rerank_rated_only": ["rerank_served", "hybrid_served"],
+    "rerank_served": ["hybrid_served"],
+    "rerank_cold5": ["hybrid_cold5"],
+}
 
 
 def metric(metrics: dict, path: str) -> float | None:
-    """Look up "row.metric", falling back to the stage-1 row when there is no ranker."""
+    """Look up "row.metric", trying the fallback rows when that row is missing."""
     row, name = path.split(".")
-    if row not in metrics and row in STAGE1_FALLBACK:
-        row = STAGE1_FALLBACK[row]
-    return metrics.get(row, {}).get(name)
+    for candidate in [row, *ROW_FALLBACKS.get(row, [])]:
+        if candidate in metrics:
+            return metrics[candidate].get(name)
+    return None
 
 
 @dataclass
@@ -53,7 +59,7 @@ class Decision:
         head = "PROMOTE" if self.promote else "REJECT"
         lines = [f"{head}: " + ("; ".join(self.reasons) if self.reasons else "no blocking regressions")]
         for c in self.comparisons:
-            arrow = "✓" if c["ok"] else "✗"
+            arrow = "ok  " if c["ok"] else "FAIL"  # ASCII: Windows consoles default to cp1252
             live = "n/a" if c["live"] is None else f"{c['live']:.4f}"
             lines.append(f"  {arrow} {c['metric']:<28} live {live} -> candidate {c['candidate']:.4f} ({c['change']:+.1%})")
         return "\n".join(lines)

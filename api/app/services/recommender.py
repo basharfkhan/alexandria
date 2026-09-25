@@ -49,6 +49,7 @@ class RecommenderService:
             explore_slots=min(explore_slots, k // 8),
             diversity=settings.recommendation_diversity,
             max_per_author=settings.recommendation_max_per_author,
+            new_book_slots=settings.recommendation_new_book_slots,
             reranker=reranker,
         )
         n_explicit = sum(abs(w) >= 1 for w in feedback.values())
@@ -67,6 +68,7 @@ def load_service(db: Session) -> RecommenderService:
         select(
             Book.id, Book.content_embedding, Book.cf_factors, Book.cf_bias,
             Book.ratings_count, Book.avg_rating, Book.genres, Book.authors, Book.title,
+            Book.popularity, Book.has_ratings,
         ).order_by(Book.id)
     ).all()
     if not rows:
@@ -75,13 +77,14 @@ def load_service(db: Session) -> RecommenderService:
     has_cf = all(r.cf_factors is not None for r in rows)
     catalog = CatalogArrays(
         content=np.vstack([np.asarray(r.content_embedding, dtype=np.float32) for r in rows]),
-        popularity=np.array([r.ratings_count for r in rows]),
+        popularity=np.array([r.popularity if r.popularity is not None else r.ratings_count for r in rows]),
         avg_rating=np.array([r.avg_rating for r in rows]),
         genres=[r.genres or [] for r in rows],
         cf_factors=np.vstack([np.asarray(r.cf_factors, dtype=np.float32) for r in rows]) if has_cf else None,
         cf_bias=np.array([r.cf_bias or 0.0 for r in rows]) if has_cf else None,
         authors=[r.authors for r in rows],
         titles=[r.title for r in rows],
+        cold_start=[not r.has_ratings for r in rows],
     )
     ids = np.array([r.id for r in rows])
     meta = db.get(ModelMeta, "manifest")

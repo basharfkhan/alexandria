@@ -114,6 +114,11 @@ export default function DiscoverPage() {
                 <BookCover book={rec.book} className="transition group-hover:-translate-y-1 group-hover:shadow-md" />
                 <h2 className="mt-3 line-clamp-2 font-serif leading-snug font-semibold group-hover:text-accent">
                   {rec.book.title}
+                  {rec.book.is_new && (
+                    <span className="ml-2 align-middle rounded-full bg-moss-soft px-2 py-0.5 text-[10px] font-medium tracking-wide text-moss uppercase">
+                      New
+                    </span>
+                  )}
                 </h2>
               </Link>
               <p className="line-clamp-1 text-sm text-muted">{rec.book.authors}</p>

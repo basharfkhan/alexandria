@@ -11,6 +11,7 @@ export interface Book {
   ratings_count: number;
   image_url: string | null;
   genres: string[];
+  is_new: boolean;
 }
 
 export interface BookDetail extends Book {

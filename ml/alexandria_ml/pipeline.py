@@ -18,11 +18,14 @@ from pathlib import Path
 import pandas as pd
 
 from alexandria_core import HybridRecommender, Reranker
+from alexandria_ml.cold_start import project_cold_start
 from alexandria_ml.config import ARTIFACT_DIR, CF_DIM, DATA_DIR, POSITIVE_RATING, PROCESSED_DIR, RAW_DIR
 from alexandria_ml.data.app_feedback import load_app_ratings
 from alexandria_ml.data.download import download_goodbooks
 from alexandria_ml.data.openlibrary import PACKAGED_CACHE
 from alexandria_ml.data.preprocess import build_dataset, save_dataset, train_test_split_by_user
+from alexandria_ml.data.recent_books import CACHE_PATH as RECENT_FETCHED
+from alexandria_ml.data.recent_books import PACKAGED_CACHE as RECENT_CACHE
 from alexandria_ml.data.synthetic import make_synthetic
 from alexandria_ml.evaluate import catalog_arrays, evaluate_models
 from alexandria_ml.export import export_artifacts
@@ -46,6 +49,8 @@ def parse_args(argv=None) -> argparse.Namespace:
     p.add_argument("--max-eval-users", type=int, default=2000)
     p.add_argument("--no-final-fit", action="store_true", help="export the train-split model instead of refitting")
     p.add_argument("--no-ranker", action="store_true", help="skip the second-stage learning-to-rank model")
+    p.add_argument("--no-recent-books", action="store_true",
+                   help="catalog of rated books only (skip post-2017 titles from Open Library)")
     p.add_argument("--app-feedback", action="store_true",
                    help="also train on ratings collected by the live app (needs DATABASE_URL)")
     p.add_argument("--ranker-users", type=int, default=RankerConfig.max_users)
@@ -71,7 +76,10 @@ def main(argv=None) -> dict:
         enrichment = fetched if fetched.exists() else PACKAGED_CACHE
         if not enrichment.exists():
             log.warning("no Open Library enrichment - run `python -m alexandria_ml.data.openlibrary` for descriptions")
-    ds = build_dataset(raw_dir, enrichment_path=enrichment)
+    recent = None
+    if not args.synthetic and not args.no_recent_books:
+        recent = RECENT_FETCHED if RECENT_FETCHED.exists() else RECENT_CACHE
+    ds = build_dataset(raw_dir, enrichment_path=enrichment, recent_path=recent)
     processed = PROCESSED_DIR / dataset_name
     save_dataset(ds, processed)
 
@@ -100,13 +108,21 @@ def main(argv=None) -> dict:
         on_epoch=lambda e, loss: tracker.log_metrics({"train_bpr_loss": loss}, step=e),
     )
 
+    # Books with no ratings never appear in training, so their latent vectors stay at their random
+    # initialisation: project one from their nearest rated neighbours before anything scores with them.
+    has_ratings = ds.books.has_ratings.to_numpy()
+
+    def item_factors(trained):
+        factors, bias = trained.item_factors()
+        return project_cold_start(content, factors, bias, has_ratings) if not has_ratings.all() else (factors, bias)
+
     # 4. Second-stage ranker: trained on a fit/validation split *inside* the training data, so the
     #    test split stays untouched and the ranker never sees the labels it is evaluated on.
     reranker, ranker_info = None, None
     if not args.no_ranker:
         fit, val = train_test_split_by_user(train, seed=7)
         fit_model = cached_bpr(fit, ds.n_users, ds.n_items, cfg, dataset_name, DATA_DIR / "cache")
-        fit_factors, fit_bias = fit_model.item_factors()
+        fit_factors, fit_bias = item_factors(fit_model)
         fit_hybrid = HybridRecommender(catalog_arrays(ds.books, content, fit_factors, fit_bias))
         booster, ranker_info = train_ranker(
             fit_hybrid, fit, val, RankerConfig(max_users=args.ranker_users, seed=cfg.seed)
@@ -117,7 +133,8 @@ def main(argv=None) -> dict:
 
     # 5. Evaluate
     results = evaluate_models(
-        ds.books, train, test, content, model, max_users=args.max_eval_users, reranker=reranker
+        ds.books, train, test, content, model, max_users=args.max_eval_users,
+        reranker=reranker, item_factors=item_factors,
     )
     for name, metrics in results.items():
         tracker.log_metrics(metrics, prefix=f"{name}.")
@@ -127,7 +144,7 @@ def main(argv=None) -> dict:
         log.info("refitting on all data for export")
         model = cached_bpr(ds.ratings, ds.n_users, ds.n_items, cfg, f"{dataset_name}_all", DATA_DIR / "cache")
 
-    factors, bias = model.item_factors()
+    factors, bias = item_factors(model)
     out = export_artifacts(
         Path(args.artifact_dir),
         ds.books, content, factors, bias,

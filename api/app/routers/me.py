@@ -31,6 +31,7 @@ EXPLANATIONS = {
     "genre": lambda b, g: f"A standout in {_genre_label(g)}" if g else "A standout in your genres",
     "popular": lambda b, g: "A reader favorite",
     "explore": lambda b, g: "Something a little different to broaden your shelf",
+    "new_release": lambda b, g: f"New - readers of {b.title} may like this" if b else "New and worth a look",
 }
 
 

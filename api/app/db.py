@@ -35,7 +35,8 @@ def init_db() -> None:
 
 # Additive columns introduced after tables already existed in a deployed database.
 # create_all() never alters existing tables; a migration tool (Alembic) is on the roadmap.
-_ADDED_COLUMNS = {"books": {"description": "TEXT"}}
+_ADDED_COLUMNS = {"books": {"description": "TEXT", "popularity": "INTEGER",
+                            "has_ratings": "BOOLEAN DEFAULT TRUE"}}
 
 
 def _add_missing_columns() -> None:
