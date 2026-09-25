@@ -37,7 +37,7 @@ flowchart LR
     A -- seed --> DB[(Postgres<br/>+ pgvector)]
     subgraph Online["Online serving"]
         DB --> API[FastAPI<br/>stage 1: hybrid + fold-in<br/>stage 2: LightGBM ranker]
-        LLM[Claude<br/>onboarding chat] <--> API
+        LLM[LLM librarian<br/>onboarding chat] <--> API
         API <--> WEB[Next.js app]
     end
     WEB -- feedback events --> API
@@ -54,7 +54,8 @@ flowchart LR
 | **Filter bubbles** | MMR re-ranking for diversity, plus "explore" slots sampled from further down the ranking. |
 | **Trust** | Every recommendation carries a reason: *"Because you enjoyed Mistborn"*, *"Readers who loved Dune also loved this"*. |
 | **Train/serve skew** | The ranking logic lives in one numpy package (`core/`) used by *both* offline evaluation and the API - what's benchmarked is what's served. |
-| **Future retraining** | An append-only `events` table logs impressions (with position, reason, model version) and feedback for CTR analysis and retraining. |
+| **Retraining safely** | A weekly GitHub Action retrains, compares against the live model on four gate metrics, and **only promotes when nothing regresses**; the API hot-reloads the new model without a redeploy. |
+| **Closing the loop** | Ratings collected in the app are folded back into training as extra users; an append-only `events` table logs impressions (position, reason, model version) for click-through analysis. |
 
 ## Tech stack
 
@@ -62,9 +63,9 @@ flowchart LR
 |---|---|
 | ML / data | Python, **PyTorch** (BPR-MF), **LightGBM** (LambdaMART re-ranker), **sentence-transformers**, scikit-learn, pandas, NumPy, **MLflow** experiment tracking |
 | Backend | **FastAPI**, Pydantic v2, **SQLAlchemy 2.0**, **PostgreSQL + pgvector** (HNSW index), JWT auth, bcrypt |
-| LLM | **Anthropic Claude API** - structured outputs for preference extraction |
+| LLM | **Anthropic API** - structured outputs for preference extraction |
 | Frontend | **Next.js 16** (App Router), **React 19**, **TypeScript**, **Tailwind CSS v4** |
-| Infra / MLOps | **Docker** & Docker Compose, **GitHub Actions** CI (lint, tests, Postgres integration test, image builds), Render / Vercel / Neon deploy |
+| Infra / MLOps | **Docker** & Docker Compose, **GitHub Actions** CI + scheduled retraining with a model registry and promotion gate, Render / Vercel / Neon deploy |
 | Quality | pytest (unit + API + pipeline tests), Ruff, ESLint, `tsc` |
 
 ## Repository layout
@@ -138,6 +139,23 @@ validation split (`python -m alexandria_ml.tune`), never on the test set.
   ranking accuracy, which is driven by collaborative signals. Embeddings are therefore a 50/50 blend
   of metadata and description views, chosen on the validation split. See
   [ARCHITECTURE.md → Book descriptions](docs/ARCHITECTURE.md#book-descriptions-open-library).
+
+## Retraining
+
+```bash
+cd ml
+python -m alexandria_ml.pipeline --app-feedback   # train on Goodbooks + ratings from the live app
+python -m alexandria_ml.promote --artifacts artifacts   # gate: exit 0 = promote, 1 = regression
+```
+
+`.github/workflows/retrain.yml` runs this weekly: train → evaluate → compare against the live
+model in `ml/model_registry.json` → seed the database only when promoted (the API hot-reloads
+within a minute). A rejected model is still recorded, and the run fails loudly.
+
+Without production traffic yet, `python -m alexandria_ml.simulate_traffic --readers 20` replays
+real Goodbooks readers through the API - they onboard with books they loved and answer
+recommendations the way they rated those books historically - so the loop has honest data to
+learn from. Details: [ARCHITECTURE.md → Retraining loop](docs/ARCHITECTURE.md#retraining-loop-and-promotion-gate).
 
 ## Roadmap
 

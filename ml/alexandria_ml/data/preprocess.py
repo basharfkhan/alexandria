@@ -56,7 +56,9 @@ def load_enrichment(path: Path | None) -> dict[int, dict]:
     """Open Library descriptions/subjects/covers keyed by Goodbooks book_id (see data/openlibrary.py)."""
     if path is None or not path.exists():
         return {}
-    with path.open(encoding="utf-8") as fh:
+    from alexandria_ml.data.openlibrary import open_cache
+
+    with open_cache(path) as fh:
         return {rec["book_id"]: rec for rec in map(json.loads, fh)}
 
 

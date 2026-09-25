@@ -59,6 +59,14 @@ Free Render instances sleep when idle; the first request after a sleep takes ~30
 The API notices the new `model_version` within `MODEL_RELOAD_INTERVAL_S` (60 s) and reloads the
 recommender by itself; no redeploy or restart needed.
 
+## Scheduled retraining
+
+`.github/workflows/retrain.yml` retrains weekly and promotes only if the model does not regress.
+To let it deploy, add a repository secret **`DATABASE_URL`** (GitHub → Settings → Secrets and
+variables → Actions) with the same Neon connection string the API uses. Without the secret the
+workflow still trains, evaluates and records the run, and skips the deploy step. Trigger a run by
+hand from the Actions tab → Retrain → Run workflow.
+
 ## Security checklist
 
 - [ ] Strong `JWT_SECRET` (Render generates one).

@@ -18,6 +18,7 @@ Library's API guidelines.
 from __future__ import annotations
 
 import argparse
+import gzip
 import json
 import logging
 import re
@@ -29,13 +30,15 @@ from pathlib import Path
 
 import pandas as pd
 
-from alexandria_ml.config import DATA_DIR, RAW_DIR
+from alexandria_ml.config import DATA_DIR, ML_ROOT, RAW_DIR
 
 log = logging.getLogger(__name__)
 
 API = "https://openlibrary.org"
 USER_AGENT = "Alexandria-portfolio-recommender/0.1 (+https://github.com/basharfkhan/alexandria)"
 CACHE_PATH = DATA_DIR / "openlibrary" / "works.jsonl"
+# Committed to the repo (Open Library data is CC0) so CI retraining sees the same descriptions.
+PACKAGED_CACHE = ML_ROOT / "enrichment" / "openlibrary_works.jsonl.gz"
 ISBN_BATCH = 40
 
 
@@ -120,11 +123,27 @@ def resolve_by_title(client: RateLimitedClient, title: str, authors: str) -> dic
     return None
 
 
+def open_cache(path: Path):
+    """Open a plain or gzipped JSONL cache."""
+    return gzip.open(path, "rt", encoding="utf-8") if path.suffix == ".gz" else path.open(encoding="utf-8")
+
+
 def load_cache(path: Path = CACHE_PATH) -> dict[int, dict]:
     if not path.exists():
         return {}
-    with path.open(encoding="utf-8") as fh:
+    with open_cache(path) as fh:
         return {rec["book_id"]: rec for rec in map(json.loads, fh)}
+
+
+def package_cache(cache_path: Path = CACHE_PATH, out: Path = PACKAGED_CACHE) -> Path:
+    """Compress the fetched cache into the repo so retraining anywhere sees the same data."""
+    out.parent.mkdir(parents=True, exist_ok=True)
+    records = load_cache(cache_path)
+    with gzip.open(out, "wt", encoding="utf-8", compresslevel=9) as fh:
+        for record in records.values():
+            fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+    log.info("packaged %d records -> %s (%.1f MB)", len(records), out, out.stat().st_size / 1024 / 1024)
+    return out
 
 
 def fetch(raw_dir: Path = RAW_DIR, cache_path: Path = CACHE_PATH, limit: int | None = None) -> Path:
@@ -181,13 +200,18 @@ def fetch(raw_dir: Path = RAW_DIR, cache_path: Path = CACHE_PATH, limit: int | N
 def main(argv=None) -> None:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--limit", type=int, help="only the first N books (for a quick test)")
+    p.add_argument("--package", action="store_true", help="only compress the existing cache into the repo")
     args = p.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    if args.package:
+        package_cache()
+        return
     fetch(limit=args.limit)
     cache = load_cache()
     with_desc = sum(1 for r in cache.values() if r["description"])
     log.info("cache: %d books, %d matched, %d with descriptions", len(cache),
              sum(1 for r in cache.values() if r["work"]), with_desc)
+    package_cache()
 
 
 if __name__ == "__main__":

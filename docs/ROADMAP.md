@@ -52,7 +52,7 @@ test, and talk about in an interview. ✅ = implemented in this repo, ⬜ = next
 **Try it:** `uvicorn app.main:app --reload` → http://localhost:8000/docs
 
 ## Phase 6 - LLM onboarding chatbot ✅
-- Claude interviews the reader; structured outputs return the reply *and* extracted
+- The LLM interviews the reader; structured outputs return the reply *and* extracted
   genres/loved/disliked books every turn.
 - Mentions are resolved to catalog ids; the user confirms before they become feedback.
 - Degrades gracefully (quiz still works) when no API key is configured.
@@ -72,11 +72,13 @@ test, and talk about in an interview. ✅ = implemented in this repo, ⬜ = next
 
 ## Next steps (good follow-ups to extend the project)
 
-### Phase 9 - Close the feedback loop ⬜
-- [ ] Export `interactions` from production and merge with Goodbooks ratings for retraining.
-- [ ] Scheduled GitHub Action (weekly) that retrains, evaluates, and only promotes a model if
-      NDCG@20 doesn't regress (model registry in MLflow).
+### Phase 9 - Close the feedback loop ✅
+- [x] Merge `interactions` from the live app into training data (`--app-feedback`).
+- [x] Weekly GitHub Action: retrain → evaluate → promote only if nothing regresses, with a
+      model registry (`ml/model_registry.json`) as the audit trail.
 - [x] Hot-reload the recommender when a new `model_version` is seeded.
+- [x] Replay real Goodbooks readers against the API to generate honest feedback while the app
+      has no production traffic.
 
 ### Phase 10 - Scale the catalog: 10k → 200k books ⬜
 Goodbooks-10k only covers popular books and has no descriptions, which is why the content model is
@@ -98,7 +100,7 @@ has 2.36M books, 229M interactions and real blurbs (check its academic-use terms
       ranking accuracy unchanged - see ARCHITECTURE.md).
 - [ ] Hyperparameter search (Optuna) tracked in MLflow.
 
-### Phase 12 - Measure online ⬜
+### Phase 12 - Measure online ⬜ (the `events` table already logs impressions)
 - [ ] Dashboard of CTR / "loved" rate by recommendation reason and position from `events`.
 - [ ] A/B test framework: assign users to ranking variants, compare engagement.
 - [x] Rate limiting on the LLM chat endpoint.

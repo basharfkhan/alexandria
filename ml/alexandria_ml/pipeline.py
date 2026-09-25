@@ -11,12 +11,17 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import time
 from pathlib import Path
 
+import pandas as pd
+
 from alexandria_core import HybridRecommender, Reranker
 from alexandria_ml.config import ARTIFACT_DIR, CF_DIM, DATA_DIR, POSITIVE_RATING, PROCESSED_DIR, RAW_DIR
+from alexandria_ml.data.app_feedback import load_app_ratings
 from alexandria_ml.data.download import download_goodbooks
+from alexandria_ml.data.openlibrary import PACKAGED_CACHE
 from alexandria_ml.data.preprocess import build_dataset, save_dataset, train_test_split_by_user
 from alexandria_ml.data.synthetic import make_synthetic
 from alexandria_ml.evaluate import catalog_arrays, evaluate_models
@@ -41,6 +46,8 @@ def parse_args(argv=None) -> argparse.Namespace:
     p.add_argument("--max-eval-users", type=int, default=2000)
     p.add_argument("--no-final-fit", action="store_true", help="export the train-split model instead of refitting")
     p.add_argument("--no-ranker", action="store_true", help="skip the second-stage learning-to-rank model")
+    p.add_argument("--app-feedback", action="store_true",
+                   help="also train on ratings collected by the live app (needs DATABASE_URL)")
     p.add_argument("--ranker-users", type=int, default=RankerConfig.max_users)
     p.add_argument("--artifact-dir", default=str(ARTIFACT_DIR))
     return p.parse_args(argv)
@@ -58,12 +65,26 @@ def main(argv=None) -> dict:
     # 1. Data
     dataset_name = "synthetic" if args.synthetic else "goodbooks"
     raw_dir = make_synthetic(DATA_DIR / "synthetic_raw") if args.synthetic else download_goodbooks(RAW_DIR)
-    enrichment = None if args.synthetic else DATA_DIR / "openlibrary" / "works.jsonl"
-    if enrichment is not None and not enrichment.exists():
-        log.warning("no Open Library enrichment found - run `python -m alexandria_ml.data.openlibrary` for descriptions")
+    enrichment = None
+    if not args.synthetic:
+        fetched = DATA_DIR / "openlibrary" / "works.jsonl"
+        enrichment = fetched if fetched.exists() else PACKAGED_CACHE
+        if not enrichment.exists():
+            log.warning("no Open Library enrichment - run `python -m alexandria_ml.data.openlibrary` for descriptions")
     ds = build_dataset(raw_dir, enrichment_path=enrichment)
     processed = PROCESSED_DIR / dataset_name
     save_dataset(ds, processed)
+
+    # 1b. Ratings collected by the live app become extra users (closing the feedback loop).
+    if args.app_feedback:
+        database_url = os.getenv("DATABASE_URL")
+        if not database_url:
+            log.warning("--app-feedback given but DATABASE_URL is unset; training on Goodbooks only")
+        else:
+            app_ratings = load_app_ratings(database_url, ds.books, first_user_idx=ds.n_users)
+            if len(app_ratings):
+                ds.ratings = pd.concat([ds.ratings, app_ratings], ignore_index=True)
+                tracker.log_params({"app_ratings": len(app_ratings), "app_users": app_ratings.user_idx.nunique()})
 
     # 2. Content embeddings
     content, method = content_embeddings(ds.books, processed, args.embedder)

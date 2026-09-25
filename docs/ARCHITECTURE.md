@@ -8,7 +8,7 @@ sequenceDiagram
     participant A as FastAPI
     participant R as HybridRecommender (in-memory)
     participant DB as Postgres + pgvector
-    participant C as Claude API
+    participant C as LLM API
 
     U->>A: POST /chat/onboarding (transcript)
     A->>C: messages.create (structured output schema)
@@ -220,9 +220,54 @@ the model manifest last. Each API instance checks the manifest's `model_version`
 `MODEL_RELOAD_INTERVAL_S` (default 60 s) and rebuilds its in-memory recommender when it changes, so
 a new model goes live without a redeploy.
 
+## Retraining loop and promotion gate
+
+Retraining is only safe if a worse model cannot reach production, so every run is recorded and
+gated.
+
+```mermaid
+flowchart LR
+    A[Weekly schedule] --> B[Train: Goodbooks + app ratings]
+    B --> C[Evaluate on the held-out test split]
+    C --> D{Promotion gate}
+    D -- no regression --> E[Seed database] --> F[API hot-reloads within 60 s]
+    D -- regression --> G[Record, fail the run, keep the live model]
+    F --> H[Readers rate books] --> B
+```
+
+**Gate metrics** (`ml/alexandria_ml/registry.py`), each with a tolerance for run-to-run noise from
+negative sampling:
+
+| Metric | Why it is in the gate | May fall by |
+|---|---|---|
+| `rerank_served.ndcg@20` | ranking quality of exactly what the API returns | 2% |
+| `rerank_served.recall@20` | did we surface the books they went on to love | 2% |
+| `rerank_cold5.ndcg@20` | new readers see the app at its worst | 5% |
+| `rerank_served.coverage@20` | catches the popularity drift that the ranker exposed | 10% |
+
+`ml/model_registry.json` keeps the production version and the last 50 runs with their metrics and
+decisions - the audit trail for "why is this model live?". A model trained without a ranker is
+compared against the stage-1 rows instead, so the gate still works if the second stage is skipped.
+
+**Closing the loop.** `--app-feedback` appends ratings from the app's `interactions` table to the
+training data as extra users (loved → 5, liked → 4, disliked → 2; "want to read" is intent, not an
+opinion, and is ignored). App users are numbered above the Goodbooks range so the two never
+collide.
+
+**Simulated readers.** With no production traffic yet, `alexandria_ml/simulate_traffic.py` replays
+real Goodbooks users against a running API: each signs up, onboards with three books they loved,
+and answers recommendations the way they historically rated those books. It reports something
+offline evaluation cannot - the share of recommendations the reader had an opinion on (~39% in a
+20-reader run) and how many of those were positive.
+
+**Operations.** The workflow needs a `DATABASE_URL` repository secret to deploy; without it, it
+still trains, evaluates, records and uploads artifacts, and simply skips the deploy step.
+
 ## Known limitations
 
 - 18% of books still have no description; their embedding is the metadata view only.
+- The gate compares against the previous model only; it cannot catch slow drift across many
+  small, individually-tolerated regressions. A fixed reference model would fix that.
 - The catalog is fixed at 10k popular books, so niche titles can't be matched.
 - Popularity bias in the ratings data; mitigated (not solved) by MMR and exploration.
 - Fold-in uses BPR-trained factors with an ALS-style objective - an approximation. It still trails
