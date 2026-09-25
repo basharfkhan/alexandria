@@ -104,4 +104,26 @@ def test_full_pipeline_beats_popularity(tmp_path, monkeypatch):
     books = json.loads((art / "books.json").read_text())
     assert len(books) == np.load(art / "content_embeddings.npy").shape[0]
     assert np.load(art / "cf_factors.npy").shape == (len(books), 64)
-    assert json.loads((art / "manifest.json").read_text())["content_dim"] == 384
+    manifest = json.loads((art / "manifest.json").read_text())
+    assert manifest["content_dim"] == 384
+
+    # Second stage: the ranker is trained, exported, and evaluated on the same test users.
+    assert (art / "ranker.txt").exists()
+    assert manifest["ranker"]["best_iteration"] >= 1
+    assert results["rerank_served"]["ndcg@20"] > 0
+    assert results["rerank_served"]["n_users"] == results["hybrid_served"]["n_users"]
+
+
+def test_pipeline_without_ranker_removes_stale_artifact(tmp_path, monkeypatch):
+    monkeypatch.setenv("ALEXANDRIA_DISABLE_MLFLOW", "1")
+    monkeypatch.setattr("alexandria_ml.pipeline.DATA_DIR", tmp_path / "data")
+    monkeypatch.setattr("alexandria_ml.pipeline.PROCESSED_DIR", tmp_path / "processed")
+    from alexandria_ml.pipeline import main
+
+    art = tmp_path / "artifacts"
+    art.mkdir()
+    (art / "ranker.txt").write_text("stale model", encoding="utf-8")
+    results = main(["--synthetic", "--embedder", "tfidf", "--epochs", "3", "--batch-size", "2048",
+                    "--artifact-dir", str(art), "--no-final-fit", "--no-ranker"])
+    assert not (art / "ranker.txt").exists()
+    assert "rerank_served" not in results

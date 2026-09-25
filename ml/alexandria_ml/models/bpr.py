@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import asdict, dataclass
+from pathlib import Path
 
 import numpy as np
 import torch
@@ -52,6 +53,26 @@ class BPRMF(nn.Module):
             self.item.weight.detach().cpu().numpy().astype(np.float32),
             self.item_bias.weight.detach().cpu().numpy().ravel().astype(np.float32),
         )
+
+
+def cached_bpr(
+    fit, n_users: int, n_items: int, cfg: BPRConfig, dataset: str, cache_dir: Path, on_epoch=None
+) -> BPRMF:
+    """Train (or reuse) the BPR model for a fit split - shared by tuning and ranker training."""
+    path = cache_dir / f"bpr_fit_{dataset}_d{cfg.dim}_e{cfg.epochs}_s{cfg.seed}.pt"
+    if path.exists():
+        model = BPRMF(n_users, n_items, cfg.dim)
+        model.load_state_dict(torch.load(path))
+        log.info("loaded cached BPR model from %s", path)
+        return model.eval()
+
+    from alexandria_ml.config import POSITIVE_RATING
+
+    pos = fit[fit.rating >= POSITIVE_RATING]
+    model = train_bpr(pos.user_idx.to_numpy(), pos.item_idx.to_numpy(), n_users, n_items, cfg, on_epoch=on_epoch)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    torch.save(model.state_dict(), path)
+    return model
 
 
 def train_bpr(

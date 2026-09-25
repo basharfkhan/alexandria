@@ -17,6 +17,7 @@ def export_artifacts(
     cf_factors: np.ndarray,
     cf_bias: np.ndarray,
     manifest: dict,
+    ranker=None,
 ) -> Path:
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -41,6 +42,13 @@ def export_artifacts(
     np.save(out_dir / "content_embeddings.npy", content.astype(np.float32))
     np.save(out_dir / "cf_factors.npy", cf_factors.astype(np.float32))
     np.save(out_dir / "cf_bias.npy", cf_bias.astype(np.float32))
+
+    ranker_path = out_dir / "ranker.txt"
+    if ranker is not None:
+        # newline="\n": LightGBM cannot parse a model written with Windows CRLF endings.
+        ranker_path.write_text(ranker.model_to_string(), encoding="utf-8", newline="\n")
+    elif ranker_path.exists():
+        ranker_path.unlink()  # stale ranker would not match these embeddings
 
     manifest = {
         **manifest,

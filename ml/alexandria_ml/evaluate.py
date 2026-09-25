@@ -7,7 +7,8 @@ Models compared (all on the same held-out positives, excluding each user's train
 * bpr                - BPR-MF with the user embedding learned during training
 * hybrid_foldin      - production path: HybridRecommender with fold-in (no learned user vector)
 * hybrid_cold5       - production path given only 5 of the user's ratings (new-user scenario)
-* hybrid_served      - exactly what the API returns: + MMR diversity and a 3-books-per-author cap
+* hybrid_served      - stage 1 as the API returns it: + MMR diversity and a 3-books-per-author cap
+* rerank_*           - the same paths with the learned second-stage ranker (when one is trained)
 """
 
 from __future__ import annotations
@@ -56,6 +57,7 @@ def catalog_arrays(books: pd.DataFrame, content: np.ndarray, factors=None, bias=
         cf_factors=factors,
         cf_bias=bias,
         authors=books.authors.tolist(),
+        titles=books.title.tolist(),
     )
 
 
@@ -122,6 +124,7 @@ def evaluate_models(
     max_users: int = 2000,
     seed: int = 42,
     hybrid_kwargs: dict | None = None,
+    reranker=None,
 ) -> dict[str, dict[str, float]]:
     ctx = build_context(train, test, len(books), k=k, max_users=max_users, seed=seed)
 
@@ -142,11 +145,17 @@ def evaluate_models(
             return _top_k(popularity, ctx.seen[u], k)
         return _top_k(content_norm @ content_norm[liked].mean(axis=0), ctx.seen[u], k)
 
-    return {
+    served = {"diversity": SERVED_DIVERSITY, "max_per_author": SERVED_AUTHOR_CAP}
+    results = {
         "popularity": ctx.run("popularity", lambda u, _: _top_k(popularity, ctx.seen[u], k)),
         "content": ctx.run("content", content_rank),
         "bpr": ctx.run("bpr", lambda u, row: _top_k(bpr_scores[row], ctx.seen[u], k)),
         "hybrid_foldin": hybrid_metrics(hybrid, ctx, "hybrid_foldin"),
         "hybrid_cold5": hybrid_metrics(hybrid, ctx, "hybrid_cold5", n_ratings=5),
-        "hybrid_served": hybrid_metrics(hybrid, ctx, "hybrid_served", diversity=SERVED_DIVERSITY, max_per_author=SERVED_AUTHOR_CAP),
+        "hybrid_served": hybrid_metrics(hybrid, ctx, "hybrid_served", **served),
     }
+    if reranker is not None:
+        results["rerank_foldin"] = hybrid_metrics(hybrid, ctx, "rerank_foldin", reranker=reranker)
+        results["rerank_cold5"] = hybrid_metrics(hybrid, ctx, "rerank_cold5", n_ratings=5, reranker=reranker)
+        results["rerank_served"] = hybrid_metrics(hybrid, ctx, "rerank_served", reranker=reranker, **served)
+    return results

@@ -23,15 +23,14 @@ import logging
 import time
 
 import pandas as pd
-import torch
 
 from alexandria_core import HybridRecommender
 from alexandria_core.recommender import Weights
-from alexandria_ml.config import DATA_DIR, ML_ROOT, POSITIVE_RATING, PROCESSED_DIR
+from alexandria_ml.config import DATA_DIR, ML_ROOT, PROCESSED_DIR
 from alexandria_ml.data.preprocess import load_dataset, train_test_split_by_user
 from alexandria_ml.evaluate import build_context, catalog_arrays, hybrid_metrics
 from alexandria_ml.features.embeddings import content_embeddings
-from alexandria_ml.models.bpr import BPRMF, BPRConfig, train_bpr
+from alexandria_ml.models.bpr import BPRConfig, cached_bpr
 from alexandria_ml.tracking import Tracker
 
 log = logging.getLogger("alexandria.tune")
@@ -49,22 +48,6 @@ STAGE2 = {
     "quality": [0.0, 0.1],
 }
 WEIGHT_FIELDS = {f.name for f in dataclasses.fields(Weights)}
-
-
-def load_or_train_bpr(
-    fit: pd.DataFrame, n_users: int, n_items: int, cfg: BPRConfig, dataset: str
-) -> BPRMF:
-    path = DATA_DIR / "cache" / f"bpr_fit_{dataset}_d{cfg.dim}_e{cfg.epochs}_s{cfg.seed}.pt"
-    model = BPRMF(n_users, n_items, cfg.dim)
-    if path.exists():
-        model.load_state_dict(torch.load(path))
-        log.info("loaded cached BPR model from %s", path)
-        return model.eval()
-    pos = fit[fit.rating >= POSITIVE_RATING]
-    model = train_bpr(pos.user_idx.to_numpy(), pos.item_idx.to_numpy(), n_users, n_items, cfg)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    torch.save(model.state_dict(), path)
-    return model
 
 
 def build(catalog, params: dict) -> HybridRecommender:
@@ -92,7 +75,7 @@ def main(argv=None) -> dict:
     train, _test = train_test_split_by_user(ds.ratings, seed=42)
     fit, val = train_test_split_by_user(train, seed=7)
     cfg = BPRConfig(epochs=args.epochs)
-    model = load_or_train_bpr(fit, ds.n_users, ds.n_items, cfg, args.dataset)
+    model = cached_bpr(fit, ds.n_users, ds.n_items, cfg, args.dataset, DATA_DIR / "cache")
     factors, bias = model.item_factors()
     catalog = catalog_arrays(ds.books, content, factors, bias)
     ctx = build_context(fit, val, ds.n_items, max_users=args.max_users, seed=7)

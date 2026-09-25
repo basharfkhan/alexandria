@@ -40,6 +40,7 @@ class Tracker:
         log.info("MLflow run started (tracking uri: %s)", uri)
 
     def log_params(self, params: dict) -> None:
+        params = {_clean(k): v for k, v in params.items()}
         self.params.update(params)
         if self._mlflow:
             self._mlflow.log_params(params)

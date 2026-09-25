@@ -15,7 +15,7 @@ from sqlalchemy import delete, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.db import SessionLocal, engine, init_db, is_postgres
-from app.models import Book, ModelMeta
+from app.models import Book, ModelBlob, ModelMeta
 from app.services.recommender import reset_service
 
 log = logging.getLogger("alexandria.seed")
@@ -64,6 +64,15 @@ def seed(artifact_dir: Path, batch_size: int = 1000) -> int:
                         db.merge(Book(**row))
                 db.commit()
                 log.info("seeded %d/%d books", min(start + batch_size, len(rows)), len(rows))
+
+        ranker_path = artifact_dir / "ranker.txt"
+        db.execute(delete(ModelBlob).where(ModelBlob.key == "ranker"))
+        if ranker_path.exists():
+            # read_text() normalises CRLF -> LF, which LightGBM requires to parse the model.
+            db.add(ModelBlob(key="ranker", data=ranker_path.read_text(encoding="utf-8").encode("utf-8")))
+            log.info("stored second-stage ranker (%.0f KB)", ranker_path.stat().st_size / 1024)
+        else:
+            log.info("no ranker.txt in artifacts - serving stage-1 ranking only")
 
         # Written last: the API hot-reloads when it sees a new model_version (services/recommender.py).
         db.execute(delete(ModelMeta).where(ModelMeta.key == "manifest"))

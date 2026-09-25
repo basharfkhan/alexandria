@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     # How often (seconds) the API checks the database for a newly seeded model version; 0 = every request.
     model_reload_interval_s: float = 60
 
+    recommendation_use_ranker: bool = True  # second-stage LightGBM ranker, when one is seeded
     recommendation_explore_slots: int = 2
     # Keep in sync with SERVED_* in ml/alexandria_ml/evaluate.py so offline metrics describe what users see.
     recommendation_diversity: float = 0.25

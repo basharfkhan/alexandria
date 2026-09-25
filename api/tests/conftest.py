@@ -25,7 +25,23 @@ from app.seed import seed  # noqa: E402
 GENRES = ["fantasy", "romance", "mystery"]
 
 
-def make_artifacts(out: Path, n: int = 90) -> Path:
+def _train_toy_ranker(out: Path, seed: int = 0) -> None:
+    """A tiny LambdaMART model over the real feature names, so serving code is exercised end to end."""
+    import lightgbm as lgb
+
+    from alexandria_core import FEATURE_NAMES
+
+    rng = np.random.default_rng(seed)
+    groups, rows_per_group = 20, 25
+    x = rng.normal(size=(groups * rows_per_group, len(FEATURE_NAMES)))
+    # Relevance follows one feature, so the model has something learnable.
+    y = (x[:, FEATURE_NAMES.index("max_content_sim_liked")] > 0.8).astype(int)
+    dataset = lgb.Dataset(x, label=y, group=[rows_per_group] * groups, feature_name=list(FEATURE_NAMES))
+    booster = lgb.train({"objective": "lambdarank", "num_leaves": 7, "verbose": -1}, dataset, num_boost_round=5)
+    (out / "ranker.txt").write_text(booster.model_to_string(), encoding="utf-8")
+
+
+def make_artifacts(out: Path, n: int = 90, with_ranker: bool = True) -> Path:
     rng = np.random.default_rng(0)
     centers = rng.normal(size=(3, 384))
     cf_centers = rng.normal(size=(3, 64))
@@ -51,6 +67,8 @@ def make_artifacts(out: Path, n: int = 90) -> Path:
     np.save(out / "cf_factors.npy", cf_centers[labels] + 0.2 * rng.normal(size=(n, 64)))
     np.save(out / "cf_bias.npy", np.zeros(n))
     (out / "manifest.json").write_text(json.dumps({"model_version": "test-1"}))
+    if with_ranker:
+        _train_toy_ranker(out)
     return out
 
 

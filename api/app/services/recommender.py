@@ -17,9 +17,9 @@ import numpy as np
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from alexandria_core import FEEDBACK_WEIGHTS, CatalogArrays, HybridRecommender, Recommendation
+from alexandria_core import FEEDBACK_WEIGHTS, CatalogArrays, HybridRecommender, Recommendation, Reranker
 from app.config import get_settings
-from app.models import Book, Interaction, ModelMeta, User
+from app.models import Book, Interaction, ModelBlob, ModelMeta, User
 
 
 @dataclass
@@ -28,6 +28,7 @@ class RecommenderService:
     book_ids: np.ndarray  # catalog index -> book id
     index_of: dict[int, int]  # book id -> catalog index
     model_version: str | None
+    reranker: Reranker | None = None
 
     def user_feedback(self, interactions: list[Interaction]) -> dict[int, float]:
         return {
@@ -40,6 +41,7 @@ class RecommenderService:
         feedback = self.user_feedback(user.interactions)
         # Roughly one exploration pick per eight recommendations, so short lists stay focused.
         settings = get_settings()
+        reranker = self.reranker if settings.recommendation_use_ranker else None
         recs = self.recommender.recommend(
             feedback,
             genres=user.favorite_genres or [],
@@ -47,6 +49,7 @@ class RecommenderService:
             explore_slots=min(explore_slots, k // 8),
             diversity=settings.recommendation_diversity,
             max_per_author=settings.recommendation_max_per_author,
+            reranker=reranker,
         )
         n_explicit = sum(abs(w) >= 1 for w in feedback.values())
         return recs, min(1.0, n_explicit / 10)
@@ -63,7 +66,7 @@ def load_service(db: Session) -> RecommenderService:
     rows = db.execute(
         select(
             Book.id, Book.content_embedding, Book.cf_factors, Book.cf_bias,
-            Book.ratings_count, Book.avg_rating, Book.genres, Book.authors,
+            Book.ratings_count, Book.avg_rating, Book.genres, Book.authors, Book.title,
         ).order_by(Book.id)
     ).all()
     if not rows:
@@ -78,6 +81,7 @@ def load_service(db: Session) -> RecommenderService:
         cf_factors=np.vstack([np.asarray(r.cf_factors, dtype=np.float32) for r in rows]) if has_cf else None,
         cf_bias=np.array([r.cf_bias or 0.0 for r in rows]) if has_cf else None,
         authors=[r.authors for r in rows],
+        titles=[r.title for r in rows],
     )
     ids = np.array([r.id for r in rows])
     meta = db.get(ModelMeta, "manifest")
@@ -86,7 +90,25 @@ def load_service(db: Session) -> RecommenderService:
         book_ids=ids,
         index_of={int(b): i for i, b in enumerate(ids)},
         model_version=(meta.value or {}).get("model_version") if meta else None,
+        reranker=load_reranker(db),
     )
+
+
+def load_reranker(db: Session) -> Reranker | None:
+    """Load the seeded LightGBM ranker, if any. A stale or unreadable model is skipped, not fatal."""
+    blob = db.get(ModelBlob, "ranker")
+    if blob is None:
+        return None
+    try:
+        import lightgbm as lgb
+
+        booster = lgb.Booster(model_str=blob.data.decode("utf-8").replace("\r\n", "\n"))
+        reranker = Reranker(booster, booster.feature_name())
+    except Exception:  # noqa: BLE001 - never let a bad ranker take the API down
+        log.exception("could not load the second-stage ranker; serving stage-1 ranking only")
+        return None
+    log.info("loaded second-stage ranker (%d trees)", booster.num_trees())
+    return reranker
 
 
 def _seeded_version(db: Session) -> str | None:
