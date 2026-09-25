@@ -37,7 +37,7 @@ flowchart LR
     A -- seed --> DB[(Postgres<br/>+ pgvector)]
     subgraph Online["Online serving"]
         DB --> API[FastAPI<br/>stage 1: hybrid + fold-in<br/>stage 2: LightGBM ranker]
-        LLM[LLM librarian<br/>onboarding chat] <--> API
+        LLM[Claude<br/>onboarding chat] <--> API
         API <--> WEB[Next.js app]
     end
     WEB -- feedback events --> API
@@ -63,7 +63,7 @@ flowchart LR
 |---|---|
 | ML / data | Python, **PyTorch** (BPR-MF), **LightGBM** (LambdaMART re-ranker), **sentence-transformers**, scikit-learn, pandas, NumPy, **MLflow** experiment tracking |
 | Backend | **FastAPI**, Pydantic v2, **SQLAlchemy 2.0**, **PostgreSQL + pgvector** (HNSW index), JWT auth, bcrypt |
-| LLM | **Anthropic API** - structured outputs for preference extraction |
+| LLM | **Anthropic Claude API** - structured outputs for preference extraction |
 | Frontend | **Next.js 16** (App Router), **React 19**, **TypeScript**, **Tailwind CSS v4** |
 | Infra / MLOps | **Docker** & Docker Compose, **GitHub Actions** CI + scheduled retraining with a model registry and promotion gate, Render / Vercel / Neon deploy |
 | Quality | pytest (unit + API + pipeline tests), Ruff, ESLint, `tsc` |

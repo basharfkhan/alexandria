@@ -52,7 +52,7 @@ test, and talk about in an interview. ✅ = implemented in this repo, ⬜ = next
 **Try it:** `uvicorn app.main:app --reload` → http://localhost:8000/docs
 
 ## Phase 6 - LLM onboarding chatbot ✅
-- The LLM interviews the reader; structured outputs return the reply *and* extracted
+- Claude interviews the reader; structured outputs return the reply *and* extracted
   genres/loved/disliked books every turn.
 - Mentions are resolved to catalog ids; the user confirms before they become feedback.
 - Degrades gracefully (quiz still works) when no API key is configured.

@@ -1,7 +1,7 @@
-"""Conversational onboarding: an LLM-powered "librarian" that interviews a new reader.
+"""Conversational onboarding: a Claude-powered "librarian" that interviews a new reader.
 
 Each turn is one stateless Messages API call. The client sends the whole transcript;
-The model returns, via structured outputs, both its next message *and* the preferences
+Claude returns, via structured outputs, both its next message *and* the preferences
 extracted so far. The API then resolves book mentions against the catalog and the
 frontend lets the user confirm them before they become feedback.
 """
@@ -94,7 +94,7 @@ async def run_turn(
     messages: Sequence[ChatMessage], genres: Sequence[str]
 ) -> tuple[str, bool, ExtractedPreferences]:
     """Return (assistant reply, ready flag, cumulative preferences)."""
-    # The opening message is generated locally, so the transcript sent to the model must
+    # The opening message is generated locally, so the transcript sent to Claude must
     # start at the user's first message.
     history = list(messages)
     while history and history[0].role == "assistant":

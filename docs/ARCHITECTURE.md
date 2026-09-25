@@ -8,7 +8,7 @@ sequenceDiagram
     participant A as FastAPI
     participant R as HybridRecommender (in-memory)
     participant DB as Postgres + pgvector
-    participant C as LLM API
+    participant C as Claude API
 
     U->>A: POST /chat/onboarding (transcript)
     A->>C: messages.create (structured output schema)
