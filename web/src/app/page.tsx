@@ -47,6 +47,21 @@ export default function Home() {
         </div>
       </section>
 
+      <section>
+        <p className="mb-3 text-sm tracking-wide text-muted uppercase">See it in action</p>
+        <figure className="overflow-hidden rounded-xl border border-line bg-card shadow-sm">
+          {/* eslint-disable-next-line @next/next/no-img-element -- animated gif, no optimisation needed */}
+          <img
+            src="/demo.gif"
+            alt="Signing up, picking genres and favourite books, then rating a recommendation and watching the shelf re-tune"
+            className="w-full"
+          />
+        </figure>
+        <figcaption className="mt-2 text-sm text-muted">
+          From sign-up to a tailored shelf in under a minute - every rating re-tunes the next list.
+        </figcaption>
+      </section>
+
       <section className="grid gap-4 sm:grid-cols-3">
         {STEPS.map((s, i) => (
           <div key={s.title} className="rounded-xl border border-line bg-card p-6">

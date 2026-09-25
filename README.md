@@ -7,6 +7,8 @@
 > The API runs on Render's free tier and sleeps when idle - the first request after a quiet period
 > can take ~30-50 s while it wakes up.
 
+![Alexandria demo: sign up, pick genres and favourite books, get a tailored shelf, and watch it re-tune after a rating](docs/media/demo.gif)
+
 Alexandria is a full-stack, end-to-end recommender system. New readers describe their taste
 (through a quick genre/book picker **or** a conversation with an LLM librarian), get a tailored
 shelf immediately, and every ♥ / 👍 / 👎 they give re-tunes their recommendations in real time -
