@@ -45,9 +45,16 @@ class RankerConfig:
     min_child_samples: int = 50
     early_stopping_rounds: int = 50
     seed: int = 42
+    # Popularity-style features let the ranker rediscover "just recommend bestsellers"; see
+    # docs/ARCHITECTURE.md. Empty tuple = use every feature.
+    exclude_features: tuple[str, ...] = ()
+
+    @property
+    def feature_names(self) -> list[str]:
+        return [f for f in FEATURE_NAMES if f not in self.exclude_features]
 
     def to_dict(self) -> dict:
-        return asdict(self)
+        return {**asdict(self), "exclude_features": list(self.exclude_features)}
 
 
 def _graded_labels(val: pd.DataFrame) -> dict[int, dict[int, int]]:
@@ -63,16 +70,19 @@ def build_training_data(
     fit: pd.DataFrame,
     val: pd.DataFrame,
     cfg: RankerConfig,
+    users: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray, list[int], np.ndarray]:
     """Return (features, labels, group sizes, user ids) - one group per user."""
     rng = np.random.default_rng(cfg.seed)
     labels_by_user = _graded_labels(val)
     history = {int(u): g for u, g in fit[fit.user_idx.isin(labels_by_user)].groupby("user_idx")}
 
-    users = np.array(sorted(set(labels_by_user) & set(history)))
-    if len(users) > cfg.max_users:
-        users = rng.choice(users, size=cfg.max_users, replace=False)
+    if users is None:
+        users = np.array(sorted(set(labels_by_user) & set(history)))
+        if len(users) > cfg.max_users:
+            users = rng.choice(users, size=cfg.max_users, replace=False)
 
+    columns = [FEATURE_NAMES.index(f) for f in cfg.feature_names]
     xs, ys, groups, kept_users = [], [], [], []
     for user in users:
         user = int(user)
@@ -91,7 +101,7 @@ def build_training_data(
         if labels.sum() == 0:  # lambdarank needs at least one relevant item per group
             continue
 
-        xs.append(rerank_features(hybrid, blend, feedback, [], pool))
+        xs.append(rerank_features(hybrid, blend, feedback, [], pool)[:, columns])
         ys.append(labels)
         groups.append(len(pool))
         kept_users.append(user)
@@ -107,12 +117,13 @@ def train_ranker(
     val: pd.DataFrame,
     cfg: RankerConfig | None = None,
     holdout_frac: float = 0.15,
+    users: np.ndarray | None = None,
 ):
     """Train the LambdaMART ranker; returns (booster, info dict)."""
     import lightgbm as lgb
 
     cfg = cfg or RankerConfig()
-    x, y, groups, users = build_training_data(hybrid, fit, val, cfg)
+    x, y, groups, users = build_training_data(hybrid, fit, val, cfg, users)
 
     rng = np.random.default_rng(cfg.seed)
     is_holdout = rng.random(len(groups)) < holdout_frac
@@ -138,14 +149,14 @@ def train_ranker(
         verbose=-1,
     )
     ranker.fit(
-        x[~row_mask], y[~row_mask], group=train_groups, feature_name=list(FEATURE_NAMES),
+        x[~row_mask], y[~row_mask], group=train_groups, feature_name=cfg.feature_names,
         eval_X=x[row_mask], eval_y=y[row_mask], eval_group=[eval_groups], eval_at=[20],
         callbacks=[lgb.early_stopping(cfg.early_stopping_rounds, verbose=False), lgb.log_evaluation(100)],
     )
 
     booster = ranker.booster_
     importance = sorted(
-        zip(FEATURE_NAMES, ranker.feature_importances_.tolist(), strict=True), key=lambda kv: -kv[1]
+        zip(cfg.feature_names, ranker.feature_importances_.tolist(), strict=True), key=lambda kv: -kv[1]
     )
     info = {
         **cfg.to_dict(),

@@ -64,9 +64,30 @@ def test_reranker_reorders_candidates(catalog):
 
     feedback = {0: 2.0}
     baseline = [r.index for r in rec.recommend(feedback, k=5, diversity=0)]
-    reranked = [r.index for r in rec.recommend(feedback, k=5, diversity=0, reranker=Reranker(PreferHighIndex()))]
+    # stage1_weight=0: the model alone decides the order.
+    pure = Reranker(PreferHighIndex(), stage1_weight=0.0)
+    reranked = [r.index for r in rec.recommend(feedback, k=5, diversity=0, reranker=pure)]
     assert reranked != baseline
     assert reranked == sorted(reranked, key=lambda i: -catalog.popularity[i])
+
+
+def test_stage1_weight_anchors_the_ranking(catalog):
+    """A large stage-1 weight pulls the learned order back towards the first-stage ranking."""
+    rec = HybridRecommender(catalog)
+
+    class PreferHighIndex:
+        def predict(self, x):
+            return x[:, FEATURE_NAMES.index("popularity_z")]
+
+    feedback = {0: 2.0}
+    baseline = [r.index for r in rec.recommend(feedback, k=8, diversity=0)]
+    pure = [r.index for r in rec.recommend(feedback, k=8, diversity=0,
+                                           reranker=Reranker(PreferHighIndex(), stage1_weight=0.0))]
+    anchored = [r.index for r in rec.recommend(feedback, k=8, diversity=0,
+                                               reranker=Reranker(PreferHighIndex(), stage1_weight=20.0))]
+    overlap = lambda a, b: len(set(a[:5]) & set(b[:5]))  # noqa: E731
+    assert overlap(anchored, baseline) == 5, "a heavy anchor keeps stage 1's top picks"
+    assert overlap(pure, baseline) < overlap(anchored, baseline)
 
 
 def test_reranker_rejects_mismatched_features():

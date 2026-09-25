@@ -19,6 +19,12 @@ import numpy as np
 if TYPE_CHECKING:
     from alexandria_core.recommender import Blend, HybridRecommender
 
+# How strongly the first-stage score anchors the learned ranking (both standardised over the
+# candidate pool). Chosen on held-out validation users: 0 (pure ranker) scored highest but drifted
+# to globally popular books for every reader; 0.5 keeps ~75% of the accuracy gain and restores
+# on-topic lists. See docs/ARCHITECTURE.md -> Second-stage ranker.
+STAGE1_WEIGHT = 0.5
+
 FEATURE_NAMES = [
     # first-stage scores
     "stage1_score", "stage1_rank_pct",
@@ -129,11 +135,22 @@ def rerank_features(
 
 
 class Reranker:
-    """Wraps a trained ranking model; checks it was trained on this exact feature set."""
+    """Wraps a trained ranking model, feeding it exactly the features it was trained on.
 
-    def __init__(self, model: _Model, feature_names: Sequence[str] | None = None):
-        if feature_names is not None and list(feature_names) != FEATURE_NAMES:
-            raise ValueError("ranker was trained on a different feature set - retrain it")
+    A model may use a subset of FEATURE_NAMES, so columns are selected by name, not position.
+    The final score blends the model's score with the first-stage score (see STAGE1_WEIGHT).
+    """
+
+    def __init__(
+        self, model: _Model, feature_names: Sequence[str] | None = None, stage1_weight: float = STAGE1_WEIGHT
+    ):
+        names = list(feature_names) if feature_names is not None else FEATURE_NAMES
+        unknown = [n for n in names if n not in FEATURE_NAMES]
+        if unknown:
+            raise ValueError(f"ranker was trained on a different feature set - unknown features: {unknown}")
+        self.feature_names = names
+        self._columns = [FEATURE_NAMES.index(n) for n in names]
+        self.stage1_weight = stage1_weight
         self.model = model
 
     def score(
@@ -144,4 +161,6 @@ class Reranker:
         genres: Sequence[str],
         pool: np.ndarray,
     ) -> np.ndarray:
-        return np.asarray(self.model.predict(rerank_features(rec, blend, feedback, genres, pool)), dtype=np.float64)
+        x = rerank_features(rec, blend, feedback, genres, pool)[:, self._columns]
+        scores = _zscore(np.asarray(self.model.predict(x), dtype=np.float64))
+        return scores + self.stage1_weight * _zscore(blend.total[pool])
