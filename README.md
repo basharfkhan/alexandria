@@ -159,6 +159,7 @@ users. Serving hyper-parameters were tuned on a separate validation split
 cd ml
 python -m alexandria_ml.pipeline --app-feedback   # train on Goodbooks + ratings from the live app
 python -m alexandria_ml.promote --artifacts artifacts   # gate: exit 0 = promote, 1 = regression
+python ../docs/media/results_chart.py                   # redraw the results chart from the manifest
 ```
 
 `.github/workflows/retrain.yml` runs this weekly: train → evaluate → compare against the live

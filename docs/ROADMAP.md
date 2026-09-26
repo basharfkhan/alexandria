@@ -86,15 +86,24 @@ weak (Recall@20 0.03). The [UCSD Goodreads Book Graph](https://mengtingwan.githu
 has 2.36M books, 229M interactions and real blurbs (check its academic-use terms first).
 - [ ] Ingest a filtered subset (~100-200k books with enough interactions) + descriptions.
 - [ ] Re-embed with descriptions; measure the content model's improvement.
-- [ ] Item cold start: content-only scoring for books with no interactions.
+- [x] Item cold start: never-rated books get a latent vector projected from their nearest rated
+      neighbours (`ml/alexandria_ml/cold_start.py`), shipped with the post-2017 catalog below.
 - [ ] Move candidate generation into pgvector (ANN over content + CF vectors, then blend ~500
       candidates) - the in-memory full scan won't fit a free tier past ~100k books.
 - [ ] `halfvec` / smaller embeddings to fit Neon's free storage.
 
+### Phase 10.5 - Catalog freshness: books published after 2017 ✅
+The ratings data ends in 2017, so no amount of model work could surface *Project Hail Mary*.
+- [x] Fetch the most-shelved 2018-2026 works from Open Library; 2,220 join the catalog (12,220 total).
+- [x] Project a collaborative vector for each from its nearest rated neighbours.
+- [x] Map Open Library shelf counts onto the Goodreads popularity distribution by percentile.
+- [x] Serve them in reserved slots so catalog freshness can't trade against ranking quality, and
+      add a like-for-like gate row so the promotion gate stays meaningful.
+
 ### Phase 11 - Better models ⬜
 - [ ] Two-tower neural retrieval model (user tower over history + item tower over text features).
 - [x] Learning-to-rank re-ranker (LightGBM LambdaMART) over the 200 stage-1 candidates:
-      +30% NDCG@20 on the test set; anchored to stage 1 to avoid popularity drift.
+      +29% NDCG@20 on the test set; anchored to stage 1 to avoid popularity drift.
 - [ ] Feed logged impressions/feedback into the ranker's training data.
 - [x] Richer book text: descriptions, subjects and covers from Open Library (improved similarity;
       ranking accuracy unchanged - see ARCHITECTURE.md).

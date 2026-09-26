@@ -41,7 +41,7 @@ sequenceDiagram
 `python -m app.seed` loads these into Postgres (`vector(384)` / `vector(64)` columns + HNSW index).
 On startup the API reads the vectors into an in-memory `HybridRecommender`.
 
-**Why in-memory scoring *and* pgvector?** At 10k books, brute-force numpy over the whole
+**Why in-memory scoring *and* pgvector?** At 12k books, brute-force numpy over the whole
 catalog takes a few ms and makes blending many signals trivial. pgvector remains the source
 of truth and serves nearest-neighbour queries (`/books/{id}/similar`). At millions of items
 the candidate-generation step would move to the ANN index (retrieve ~500 by content and CF
@@ -80,14 +80,18 @@ disliked −1, not-interested −0.5) and chosen genres `G`:
   the user's training ratings. `hybrid_cold5` repeats this with just 5 random ratings to
   simulate a newly onboarded reader.
 - Coverage@K is reported alongside accuracy so a model can't win by recommending the same
-  bestsellers to everyone.
+  bestsellers to everyone. It is measured against the catalog a row can actually rank, so rows
+  restricted to the rated books use 10,000 rather than 12,220 as the denominator.
+- `rerank_rated_only` is the like-for-like row: the served configuration minus the reserved
+  new-release slots. The promotion gate reads it, so adding unrated books to the catalog cannot
+  look like a model regression.
 
 ## Data model
 
 | Table | Purpose |
 |---|---|
 | `users` | credentials (bcrypt), favorite genres, onboarding flag |
-| `books` | catalog + Open Library `description`, `content_embedding vector(384)`, `cf_factors vector(64)`, `cf_bias` |
+| `books` | catalog + Open Library `description`, `content_embedding vector(384)`, `cf_factors vector(64)`, `cf_bias`, `popularity` (ranking prior), `has_ratings` |
 | `interactions` | current signal per (user, book) - what the recommender reads |
 | `events` | append-only impressions (position, reason, model version) and feedback - for analytics & retraining |
 | `chat_usage` | one row per LLM chat turn - backs the spend limits |
@@ -166,8 +170,11 @@ Chosen on held-out validation users (the test split untouched):
 | **0.5 (shipped)** | **0.236** | **30.3%** | Girl on the Train, Sharp Objects, Dark Places, Dragon Tattoo |
 | 2.0 | 0.205 | 32.6% | ≈ stage 1 |
 
-Test set, served path: NDCG@20 0.241 → **0.312** (+30%), Recall@20 0.214 → 0.283, hit-rate
-89.7% → 94.2%, cold start 0.133 → 0.158; coverage@20 54.3% → 45.9%.
+Test set, served path: NDCG@20 0.225 → **0.290** (+29%), Recall@20 0.203 → 0.265, hit-rate
+89.7% → 93.9%, cold start 0.139 → 0.160; coverage@20 42.1% → 37.8%. Measured on the full 12,220-book
+catalog, so two of every twenty slots go to books the test set cannot reward; on the rated catalog
+alone the same model scores NDCG@20 **0.309** and coverage@20 44.3% (see
+[Books published after the ratings data](#books-published-after-the-ratings-data)).
 
 **Serving.** The ranker is stored in the `model_blobs` table, loaded with the catalog, and applied
 only to readers with at least one liked book (a genre-only cold start keeps stage 1's order). It can
@@ -187,6 +194,7 @@ and shelf tags - and "similar books" mostly matched *words in titles* (*The Mart
 `python -m alexandria_ml.data.openlibrary` resolves each book to an Open Library work (batched ISBN
 search, then title search that must match the author's surname) and caches its description,
 subjects and cover: **9,838 matched, 8,157 with descriptions, 3,231 placeholder covers replaced**.
+With the post-2017 titles the catalog now has 9,539 descriptions out of 12,220 books.
 
 What the experiment showed (validation split, current serving weights):
 
@@ -207,11 +215,50 @@ What the experiment showed (validation split, current serving weights):
   away catalog coverage (~32%) - the same trade-off rejected before.
 
 Test set with the shipped embeddings: served NDCG@20 0.241 (0.242 before), coverage@20 54.3% (53.3%).
+These figures, and the tuning tables above, were measured on the 10,000-book catalog before
+post-2017 titles were added; they are comparable within each experiment but not to the current
+headline numbers.
 
 Re-tuning on the shipped embeddings (`ml/tuning/results_goodbooks.csv`): the unconstrained best again
 uses popularity 0.5 (objective 0.157, but full-history coverage@20 falls to 28%). Restricted to
 configurations keeping coverage@20 ≥ 38%, the production settings remain the best (objective 0.150),
 so the serving weights were left unchanged.
+
+## Books published after the ratings data
+
+Goodbooks-10k stops in 2017, so the catalog could not recommend anything newer: a reader who loved
+*The Martian* would never be shown *Project Hail Mary*. `python -m alexandria_ml.data.recent_books`
+pulls the most-shelved works published 2018-2026 from Open Library (per-year search sorted by
+reading-log count, at least 30 shelvings, summaries and study guides filtered out) and packages them
+as `ml/enrichment/recent_books.jsonl.gz`: **2,226 fetched, 2,220 kept** after de-duplicating against
+Goodbooks by title + first author, **1,382 with descriptions**. Their ids start at 1,000,000 so they
+stay clear of Goodbooks' 1..10000.
+
+Three problems follow from books nobody in the training data has rated.
+
+**No latent vector.** `ml/alexandria_ml/cold_start.py` projects one: for each unrated book, take the
+10 nearest rated books by content embedding and average their BPR factors and item bias, weighted by
+similarity. The borrowed vector is scaled by 0.85, because borrowed evidence is weaker than learned
+evidence and without the shrink a new book can outrank the very books it borrowed from. The
+projection runs inside the pipeline before anything is exported, so evaluation and serving see the
+same vectors.
+
+**No popularity signal.** Open Library shelf counts and Goodreads rating counts are different
+scales, and the ranker uses popularity as a feature. `map_popularity()` maps each new book's shelf
+count onto the Goodbooks rating-count distribution by percentile, capped at the 75th percentile so
+no unrated book is handed a blockbuster's prior. The displayed `ratings_count` keeps its real value;
+only the ranking prior is mapped.
+
+**They cannot be measured.** Held-out 2017 ratings can never reward a 2021 book, so any new title in
+a result list can only lower measured accuracy. Rather than let catalog freshness trade against
+ranking quality, unrated books are kept out of the ranked candidate pool entirely and fill a small
+number of reserved slots instead (`RECOMMENDATION_NEW_BOOK_SLOTS`, 2 per page of 20), inserted at
+fixed positions with the reason `new_release`.
+
+Cost of the change on the test set: NDCG@20 0.3123 → 0.3090 (-1.0%), Recall@20 0.2826 → 0.2792
+(-1.2%), cold start 0.1576 → 0.1601 (+1.6%), all inside the gate's tolerances. A control run (old
+catalog, current code) reproduced the live model to four decimals, which is how the drop was
+attributed to the catalog rather than to retraining noise.
 
 ## Model refresh without downtime
 
@@ -265,10 +312,13 @@ still trains, evaluates, records and uploads artifacts, and simply skips the dep
 
 ## Known limitations
 
-- 18% of books still have no description; their embedding is the metadata view only.
+- 22% of books still have no description; their embedding is the metadata view only.
 - The gate compares against the previous model only; it cannot catch slow drift across many
   small, individually-tolerated regressions. A fixed reference model would fix that.
-- The catalog is fixed at 10k popular books, so niche titles can't be matched.
+- The catalog is 12,220 popular books, so niche titles can't be matched.
+- Post-2017 titles are ranked from borrowed latent vectors and can only appear in reserved
+  slots, so their placement is never as good as a rated book's. Ratings collected in the app
+  are the way out: once a new book has real feedback it joins the ranked pool.
 - Popularity bias in the ratings data; mitigated (not solved) by MMR and exploration.
 - Fold-in uses BPR-trained factors with an ALS-style objective - an approximation. It still trails
   BPR's learned user vectors for heavy users; an ALS-trained model would make fold-in exact.
