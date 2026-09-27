@@ -18,6 +18,10 @@ no retraining required.
 **+70%** over matrix factorization and **3.5×** a popularity baseline - while personalizing instantly
 from new feedback, with no retraining. The catalog is 12,220 books, including 2,220 published after
 the ratings data ends in 2017, which are recommended without ever having been rated.
+
+**Those are offline numbers, and a randomized online test could not reproduce the second stage's
+share of them.** See [Online experiment](#online-experiment): the reranker's measured online lift
+is +7.3% with a 95% CI of [-2.6%, +17.2%], which excludes the +29% its offline score implied.
 [Details ↓](#offline-evaluation)
 
 | Deployment | |
@@ -51,7 +55,7 @@ flowchart LR
 | Problem | How Alexandria handles it |
 |---|---|
 | **Cold start** - a new user has no history | Content embeddings + genre "anchor" vectors give good picks from just a few genres/books. |
-| **Ranking** | Two stages: the hybrid blend retrieves 200 candidates, then a LightGBM LambdaMART model reorders them (+29% NDCG@20). |
+| **Ranking** | Two stages: the hybrid blend retrieves 200 candidates, then a LightGBM LambdaMART model reorders them (+29% NDCG@20 offline; [not reproduced online](#online-experiment)). |
 | **Real-time personalization** | Instead of retraining, each request *folds in* a user vector from their feedback against the learned item factors (closed-form weighted ridge regression, <1 ms). |
 | **Balancing signals** | Collaborative-filtering weight grows with the amount of feedback (`w_cf = 0.8·n/(n+2)`, tuned on a validation split), shifting from content-based to CF as the model learns you. |
 | **New releases** - the ratings stop in 2017 | 2,220 titles published since are projected into the collaborative space from their nearest rated neighbours, then served in reserved slots (2 per page) so a fresher catalog cannot cost ranking quality. |
@@ -152,6 +156,49 @@ users. Serving hyper-parameters were tuned on a separate validation split
   ranking accuracy, which is driven by collaborative signals. Embeddings are therefore a 50/50 blend
   of metadata and description views, chosen on the validation split. See
   [ARCHITECTURE.md → Book descriptions](docs/ARCHITECTURE.md#book-descriptions-open-library).
+
+## Online experiment
+
+Offline metrics answer "does the model rank held-out ratings well". They cannot answer "do readers
+like what they are shown", and for this system the two turned out to disagree.
+
+The second-stage ranker shipped on a **+29% NDCG@20** offline gain. But catalog coverage fell 8
+points, and the unanchored ranker recommended bestsellers to everyone, which is why it is held at
+`STAGE1_WEIGHT = 0.5`. Rating data is popularity-biased, so an offline gain is consistent with
+either genuinely better ranking or simply surfacing famous books. Only an experiment separates them.
+
+[Experiment 001](docs/experiments/001-ranker-ab.md) is pre-registered: hypothesis, primary metric,
+guardrails, power analysis and stopping rule were all committed **before** the run. Two API
+instances differing only in `RECOMMENDATION_USE_RANKER`, 600 replayed Goodbooks readers split into
+disjoint arms of 300, 36,000 impressions, both arms concurrent.
+
+| | control (stage 1) | treatment (two-stage) |
+|---|---|---|
+| Positive feedback per impression | 0.1908 | 0.2047 |
+| Catalog coverage | 26.3% | 22.9% |
+| Share from top 1% most popular | 39.5% | **48.6%** |
+
+**Effect: +7.3% relative, 95% bootstrap CI [-2.6%, +17.2%], p = 0.157.** No effect demonstrated,
+and the interval excludes a gain the size the offline metric implied. Weighting each positive by
+inverse popularity shrinks the edge to +4.1%, so roughly 40% of the apparent advantage is the
+reranker surfacing better-known books.
+
+The experiment was powered for a 16% relative lift, so this is "no effect of about 16% or larger",
+not "no effect". The ranker was **not** reverted: the direction is positive, the interval is wide,
+and the simulation's own popularity bias favours the treatment. The conclusion is narrower and more
+useful than a verdict on the ranker: **NDCG@20 is not a trustworthy proxy for reader benefit here**,
+so it should not be the sole basis for shipping.
+
+```bash
+# reproduce (needs the local stack up and seeded)
+python -m alexandria_ml.power --baseline 0.2006 --sd 0.1404      # sample size
+python -m alexandria_ml.analyze_experiment \
+    --control  docs/experiments/data/001-control.jsonl \
+    --treatment docs/experiments/data/001-treatment.jsonl
+```
+
+Caveat worth stating plainly: these are replayed historical readers, not live users. It is a
+randomized comparison on real preferences, not a production A/B test.
 
 ## Retraining
 
