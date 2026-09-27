@@ -47,9 +47,10 @@ def request(api: str, path: str, method: str = "GET", token: str | None = None, 
         raise RuntimeError(f"{method} {path} -> {exc.code}: {exc.read()[:200]!r}") from exc
 
 
-def simulate_reader(api: str, books, ratings_by_item: dict[int, int], genres: list[str], rounds: int, rng) -> dict:
+def simulate_reader(api: str, books, ratings_by_item: dict[int, int], genres: list[str], rounds: int, rng,
+                    prefix: str = "sim") -> dict:
     """Create one reader, onboard them, then answer `rounds` pages of recommendations."""
-    username = f"sim_{secrets.token_hex(4)}"
+    username = f"{prefix}_{secrets.token_hex(4)}"
     token = request(api, "/auth/register", "POST",
                     body={"username": username, "password": secrets.token_urlsafe(12)})["access_token"]
 
@@ -90,7 +91,18 @@ def main(argv=None) -> dict:
     p.add_argument("--dataset", default="goodbooks")
     p.add_argument("--min-ratings", type=int, default=40, help="only replay users with enough history")
     p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--out", help="write one JSON record per reader here; needed for any "
+                                 "reader-level analysis, since the totals alone hide the variance")
+    p.add_argument("--arm", help="experiment arm label, e.g. A or B. Readers are tagged 'sim<ARM>_' "
+                                 "so the arm is recoverable from the database alone.")
+    p.add_argument("--arms", type=int, default=1,
+                   help="total number of arms in the experiment. The reader pool is drawn once at "
+                        "size readers*arms and split, so arms never share a reader. Every arm must "
+                        "be run with the same --seed, --readers and --arms for the split to line up.")
+    p.add_argument("--arm-index", type=int, default=0, help="0-based slice of the pool this arm takes")
     args = p.parse_args(argv)
+    if args.arm_index >= args.arms:
+        p.error(f"--arm-index {args.arm_index} is out of range for --arms {args.arms}")
     logging.basicConfig(level=logging.INFO, format="%(message)s")
 
     health = request(args.api, "/health")
@@ -100,21 +112,39 @@ def main(argv=None) -> dict:
     rng = random.Random(args.seed)
     counts = ds.ratings.groupby("user_idx").size()
     candidates = counts[counts >= args.min_ratings].index.to_numpy()
-    chosen = np.random.default_rng(args.seed).choice(candidates, size=args.readers, replace=False)
+    # Draw the whole experiment's readers at once, then take this arm's slice. Drawing per-arm
+    # instead would let the same reader land in two arms, which breaks the independence the
+    # between-arm comparison assumes.
+    pool = np.random.default_rng(args.seed).choice(
+        candidates, size=args.readers * args.arms, replace=False
+    )
+    chosen = pool[args.arm_index * args.readers : (args.arm_index + 1) * args.readers]
+    prefix = f"sim{args.arm}" if args.arm else "sim"
 
     genre_options = {g for genres in ds.books.genres for g in genres}
     totals = {"shown": 0, "rated": 0, "positive": 0}
+    per_reader: list[dict] = []
     for n, user in enumerate(chosen, start=1):
         history = ds.ratings[ds.ratings.user_idx == user]
         ratings_by_item = dict(zip(history.item_idx.tolist(), history.rating.tolist(), strict=True))
         liked_genres = [g for i, r in ratings_by_item.items() if r >= 4 for g in ds.books.genres.iloc[i]]
         top_genres = [g for g, _ in sorted({g: liked_genres.count(g) for g in set(liked_genres)}.items(),
                                            key=lambda kv: -kv[1])[:2] if g in genre_options]
-        result = simulate_reader(args.api, ds.books, ratings_by_item, top_genres, args.rounds, rng)
+        result = simulate_reader(args.api, ds.books, ratings_by_item, top_genres, args.rounds, rng, prefix)
         for key in totals:
             totals[key] += result[key]
+        result["user_idx"] = int(user)
+        result["arm"] = args.arm
+        result["positive_rate"] = result["positive"] / max(result["shown"], 1)
+        per_reader.append(result)
         log.info("  %2d/%d %s: %d shown, %d rated (%d positive)",
                  n, args.readers, result["username"], result["shown"], result["rated"], result["positive"])
+
+    if args.out:
+        with open(args.out, "w", encoding="utf-8") as f:
+            for record in per_reader:
+                f.write(json.dumps(record) + "\n")
+        log.info("wrote %d reader records -> %s", len(per_reader), args.out)
 
     opinion_rate = totals["rated"] / max(totals["shown"], 1)
     precision = totals["positive"] / max(totals["rated"], 1)
