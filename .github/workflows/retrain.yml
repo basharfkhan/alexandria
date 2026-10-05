@@ -67,8 +67,14 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: model-${{ steps.promote.outputs.model_version || github.run_id }}
+          # The vectors too, not just the manifest: a promoted model can then be re-seeded or
+          # fingerprinted (`python -m alexandria_ml.drift`) without retraining it.
           path: |
             ml/artifacts/manifest.json
+            ml/artifacts/books.json
+            ml/artifacts/content_embeddings.npy
+            ml/artifacts/cf_factors.npy
+            ml/artifacts/cf_bias.npy
             ml/artifacts/ranker.txt
             ml/model_registry.json
           retention-days: 30
