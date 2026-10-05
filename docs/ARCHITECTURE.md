@@ -276,7 +276,8 @@ gated.
 flowchart LR
     A[Weekly schedule] --> B[Train: Goodbooks + app ratings]
     B --> C[Evaluate on the held-out test split]
-    C --> D{Promotion gate}
+    C --> CF[Fingerprint probe readers]
+    CF --> D{Promotion gate<br/>live + reference}
     D -- no regression --> E[Seed database] --> F[API hot-reloads within 60 s]
     D -- regression --> G[Record, fail the run, keep the live model]
     F --> H[Readers rate books] --> B
@@ -285,12 +286,20 @@ flowchart LR
 **Gate metrics** (`ml/alexandria_ml/registry.py`), each with a tolerance for run-to-run noise from
 negative sampling:
 
-| Metric | Why it is in the gate | May fall by |
-|---|---|---|
-| `rerank_served.ndcg@20` | ranking quality of exactly what the API returns | 2% |
-| `rerank_served.recall@20` | did we surface the books they went on to love | 2% |
-| `rerank_cold5.ndcg@20` | new readers see the app at its worst | 5% |
-| `rerank_served.coverage@20` | catches the popularity drift that the ranker exposed | 10% |
+| Metric | Why it is in the gate | vs live | vs reference |
+|---|---|---|---|
+| `rerank_rated_only.ndcg@20` | ranking quality on the books the test set can judge | 2% | 5% |
+| `rerank_rated_only.recall@20` | did we surface the books they went on to love | 2% | 5% |
+| `rerank_cold5.ndcg@20` | new readers see the app at its worst | 5% | 10% |
+| `rerank_rated_only.coverage@20` | catches the popularity drift that the ranker exposed | 10% | 20% |
+
+Each candidate is checked twice: against the model currently live, and against a pinned **reference
+model** on a wider budget. The second check exists because the first one cannot see slow decay.
+Ten retrains losing 1.9% each would every one of them pass a 2% gate and leave the model 17% worse
+than where it started; measured against a fixed baseline, that run of small losses is stopped around
+the third step. The reference is the first promoted model by default and is re-pinned deliberately
+(`python -m alexandria_ml.promote --set-reference <version>`) when a change of direction is intended
+rather than accidental.
 
 `ml/model_registry.json` keeps the production version and the last 50 runs with their metrics and
 decisions - the audit trail for "why is this model live?". A model trained without a ranker is
@@ -310,11 +319,63 @@ offline evaluation cannot - the share of recommendations the reader had an opini
 **Operations.** The workflow needs a `DATABASE_URL` repository secret to deploy; without it, it
 still trains, evaluates, records and uploads artifacts, and simply skips the deploy step.
 
+## Drift monitoring
+
+The gate answers "is this model worse than the last one". It cannot answer "has this model become a
+different model", and those are not the same question: the popularity drift that shipped once moved
+NDCG@20 by almost nothing while changing what every reader was actually shown. Accuracy is an
+average over thousands of users, and averages are where that kind of change goes to hide.
+
+`ml/alexandria_ml/drift.py` measures it directly, without needing production traffic.
+
+**A fixed probe cohort.** Ten readers defined by books they loved, not by user id: a hard-SF reader
+(*The Martian*, *Ender's Game*, *Ready Player One*), an epic-fantasy reader, a thriller reader, and
+so on. They are resolved by title, so they survive the catalog being renumbered or extended. Every
+run asks the freshly trained model what it would show each of them under the real serving
+configuration, and stores the answer in the manifest:
+
+| Recorded per run | Catches |
+|---|---|
+| top-20 book ids per reader | the lists turning over |
+| mean popularity percentile of everything recommended | drift towards bestsellers |
+| genre mix | a model that quietly stops recommending a genre |
+| share of reserved new-release slots filled | the cold-start path silently breaking |
+
+At promotion the new fingerprint is compared against the live model's stored one: Jaccard overlap
+per reader, popularity shift, and total-variation distance between genre mixes. Because only the
+summary is stored, no old artifacts need to be kept around.
+
+These are **warnings, not blockers**. A better model is allowed to change its mind, and a gate that
+fails on disagreement would reject every genuine improvement. The warning is there to make someone
+look before the model ships.
+
+**Input drift.** Catalog size, rated-book count, rating and user counts, ratings per user, median
+popularity and description coverage are recorded each run; anything that moves more than 25% is
+called out. The inputs do change on their own here, since the catalog grows with each Open Library
+pull and `--app-feedback` adds real readers to the training data.
+
+What a silent regression looks like in practice, with metrics held identical:
+
+```
+PROMOTE: no blocking regressions
+  ok   rerank_rated_only.ndcg@20        live 0.3090 -> candidate 0.3090 (+0.0%)
+drift: see warnings
+  probe readers: 10% of top-20 kept (worst reader 3%), popularity +15.0%, genre mix 73.8%
+  WARN probe readers keep only 10% of their recommendations
+  WARN recommendations are 15% more popular
+  WARN genre mix moved 74%
+```
+
+An exported model can be fingerprinted without retraining
+(`python -m alexandria_ml.drift --artifacts artifacts`), which is how the current production model
+got a baseline rather than waiting two retrain cycles for drift monitoring to mean anything.
+
 ## Known limitations
 
 - 22% of books still have no description; their embedding is the metadata view only.
-- The gate compares against the previous model only; it cannot catch slow drift across many
-  small, individually-tolerated regressions. A fixed reference model would fix that.
+- Probe-cohort drift is read by a person, not acted on: nothing fails when the warnings fire.
+  With production traffic the same fingerprint could be compared against what readers actually
+  engaged with, which would make it a measurement rather than a signal.
 - The catalog is 12,220 popular books, so niche titles can't be matched.
 - Post-2017 titles are ranked from borrowed latent vectors and can only appear in reserved
   slots, so their placement is never as good as a rated book's. Ratings collected in the app

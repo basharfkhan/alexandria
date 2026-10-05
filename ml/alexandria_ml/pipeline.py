@@ -4,7 +4,7 @@
     python -m alexandria_ml.pipeline --synthetic     # tiny fake dataset, runs in seconds
 
 Steps: acquire data -> preprocess -> embed -> split -> train BPR -> evaluate
-       -> refit on all data -> export artifacts (+ MLflow tracking).
+       -> refit on all data -> fingerprint for drift -> export artifacts (+ MLflow tracking).
 """
 
 from __future__ import annotations
@@ -27,7 +27,14 @@ from alexandria_ml.data.preprocess import build_dataset, save_dataset, train_tes
 from alexandria_ml.data.recent_books import CACHE_PATH as RECENT_FETCHED
 from alexandria_ml.data.recent_books import PACKAGED_CACHE as RECENT_CACHE
 from alexandria_ml.data.synthetic import make_synthetic
-from alexandria_ml.evaluate import catalog_arrays, evaluate_models
+from alexandria_ml.drift import fingerprint, input_stats
+from alexandria_ml.evaluate import (
+    SERVED_AUTHOR_CAP,
+    SERVED_DIVERSITY,
+    SERVED_NEW_BOOK_SLOTS,
+    catalog_arrays,
+    evaluate_models,
+)
 from alexandria_ml.export import export_artifacts
 from alexandria_ml.features.embeddings import content_embeddings
 from alexandria_ml.models.bpr import BPRConfig, cached_bpr
@@ -145,6 +152,19 @@ def main(argv=None) -> dict:
         model = cached_bpr(ds.ratings, ds.n_users, ds.n_items, cfg, f"{dataset_name}_all", DATA_DIR / "cache")
 
     factors, bias = item_factors(model)
+
+    # 7. Drift fingerprint: what a fixed cohort of probe readers is shown by *this* model, under the
+    #    serving configuration. Compared against the live model's stored fingerprint at promotion
+    #    time, so prediction drift is caught without needing production traffic.
+    serving = HybridRecommender(catalog_arrays(ds.books, content, factors, bias))
+    probes = fingerprint(
+        ds.books, serving, reranker,
+        diversity=SERVED_DIVERSITY, max_per_author=SERVED_AUTHOR_CAP,
+        new_book_slots=SERVED_NEW_BOOK_SLOTS,
+    )
+    log.info("fingerprinted %d probe readers (popularity percentile %.3f)",
+             probes["n_readers"], probes["popularity_pct"])
+
     out = export_artifacts(
         Path(args.artifact_dir),
         ds.books, content, factors, bias,
@@ -155,6 +175,8 @@ def main(argv=None) -> dict:
             "bpr": cfg.to_dict(),
             "ranker": ranker_info,
             "metrics": results,
+            "fingerprint": probes,
+            "inputs": input_stats(ds.books, ds.ratings),
         },
         ranker=booster if reranker is not None else None,
     )

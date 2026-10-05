@@ -78,3 +78,52 @@ def test_gate_prefers_the_like_for_like_row(live_registry):
 
     candidate["metrics"]["rerank_rated_only"]["ndcg@20"] = 0.20  # the model itself got worse
     assert not evaluate_candidate(live_registry, candidate).promote
+
+
+def test_first_promoted_model_becomes_the_reference(tmp_path, live_registry):
+    assert live_registry["reference"] == "v1"
+    path = tmp_path / "r.json"
+    registry = record(live_registry, manifest("v2"), evaluate_candidate(live_registry, manifest("v2")), True, path)
+    assert registry["production"] == "v2", "production follows the newest promoted model"
+    assert registry["reference"] == "v1", "the reference stays pinned"
+
+
+def test_slow_decay_is_rejected_even_though_each_step_passes(tmp_path, live_registry):
+    """Ten retrains at -1.9% each clear a 2% gate; the reference gate is what stops them."""
+    registry, path = live_registry, tmp_path / "r.json"
+    ndcg = 0.31
+    for i in range(10):
+        ndcg *= 0.981
+        candidate = manifest(f"v{i + 2}", ndcg=ndcg, recall=0.28, cold=0.158, coverage=0.46)
+        decision = evaluate_candidate(registry, candidate)
+        registry = record(registry, candidate, decision, promoted=decision.promote, path=path)
+        if not decision.promote:
+            assert "drifted" in decision.reasons[0] and "reference" in decision.reasons[0]
+            assert registry["production"] == f"v{i + 1}", "the decayed model never reaches production"
+            return
+    raise AssertionError(f"cumulative decay to {ndcg:.4f} was never caught")
+
+
+def test_reference_comparison_is_skipped_while_it_is_still_production(live_registry):
+    """v1 is both live and the reference; it should be reported once, not twice."""
+    decision = evaluate_candidate(live_registry, manifest("v2"))
+    assert not any(c["metric"].startswith("ref ") for c in decision.comparisons)
+
+
+def test_a_better_model_clears_both_gates(tmp_path, live_registry):
+    registry = record(live_registry, manifest("v2"), evaluate_candidate(live_registry, manifest("v2")),
+                      True, tmp_path / "r.json")
+    decision = evaluate_candidate(registry, manifest("v3", ndcg=0.33))
+    assert decision.promote
+    assert any(c["metric"].startswith("ref ") for c in decision.comparisons), "reference is checked"
+
+
+def test_fingerprint_is_carried_into_the_registry(tmp_path, live_registry):
+    candidate = manifest("v2")
+    candidate["fingerprint"] = {"readers": {"hard_sf": [1, 2]}, "popularity_pct": 0.4}
+    candidate["inputs"] = {"n_books": 12_220}
+    registry = record(live_registry, candidate, evaluate_candidate(live_registry, candidate), True,
+                      tmp_path / "r.json")
+    entry = registry["history"][-1]
+    assert entry["fingerprint"]["readers"]["hard_sf"] == [1, 2]
+    assert entry["inputs"]["n_books"] == 12_220

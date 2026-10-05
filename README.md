@@ -62,7 +62,8 @@ flowchart LR
 | **Filter bubbles** | MMR re-ranking for diversity, plus "explore" slots sampled from further down the ranking. |
 | **Trust** | Every recommendation carries a reason: *"Because you enjoyed Mistborn"*, *"Readers who loved Dune also loved this"*. |
 | **Train/serve skew** | The ranking logic lives in one numpy package (`core/`) used by *both* offline evaluation and the API - what's benchmarked is what's served. |
-| **Retraining safely** | A weekly GitHub Action retrains, compares against the live model on four gate metrics, and **only promotes when nothing regresses**; the API hot-reloads the new model without a redeploy. |
+| **Retraining safely** | A weekly GitHub Action retrains, compares against both the live model and a pinned reference on four gate metrics, and **only promotes when nothing regresses**; the API hot-reloads the new model without a redeploy. |
+| **Silent drift** | Accuracy averages hide a model that changes character, so a fixed cohort of probe readers is re-scored every run and the overlap, popularity and genre mix of what they are shown is compared against the live model. No production traffic needed. |
 | **Closing the loop** | Ratings collected in the app are folded back into training as extra users; an append-only `events` table logs impressions (position, reason, model version) for click-through analysis. |
 
 ## Tech stack
@@ -205,13 +206,16 @@ randomized comparison on real preferences, not a production A/B test.
 ```bash
 cd ml
 python -m alexandria_ml.pipeline --app-feedback   # train on Goodbooks + ratings from the live app
-python -m alexandria_ml.promote --artifacts artifacts   # gate: exit 0 = promote, 1 = regression
+python -m alexandria_ml.promote --artifacts artifacts   # gate + drift: exit 0 = promote, 1 = regression
 python ../docs/media/results_chart.py                   # redraw the results chart from the manifest
 ```
 
-`.github/workflows/retrain.yml` runs this weekly: train → evaluate → compare against the live
-model in `ml/model_registry.json` → seed the database only when promoted (the API hot-reloads
-within a minute). A rejected model is still recorded, and the run fails loudly.
+`.github/workflows/retrain.yml` runs this weekly: train → evaluate → fingerprint a fixed cohort of
+probe readers → compare against the live model *and* a pinned reference in `ml/model_registry.json`
+→ seed the database only when promoted (the API hot-reloads within a minute). A rejected model is
+still recorded, and the run fails loudly. Drift in what the probe readers are shown is reported
+alongside the gate: it warns rather than blocks, because a better model is allowed to change its
+mind. See [ARCHITECTURE.md → Drift monitoring](docs/ARCHITECTURE.md#drift-monitoring).
 
 Without production traffic yet, `python -m alexandria_ml.simulate_traffic --readers 20` replays
 real Goodbooks readers through the API - they onboard with books they loved and answer

@@ -113,6 +113,9 @@ The ratings data ends in 2017, so no amount of model work could surface *Project
 - [ ] Dashboard of CTR / "loved" rate by recommendation reason and position from `events`.
 - [ ] A/B test framework: assign users to ranking variants, compare engagement.
 - [x] Rate limiting on the LLM chat endpoint.
+- [x] Drift monitoring: a pinned reference model that bounds cumulative regression, plus a fixed
+      probe cohort whose recommendations are compared run to run (prediction drift) and training
+      inputs whose shape is tracked (input drift). Needs no traffic.
 - [ ] Alembic migrations, structured logging, Sentry/OpenTelemetry.
 
 ### Phase 13 - Product polish ⬜
