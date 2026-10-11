@@ -24,7 +24,7 @@ export function Nav() {
           href={user ? "/discover" : "/"}
           className="flex shrink-0 items-center gap-2 font-display text-lg font-semibold tracking-[0.1em] sm:text-xl"
         >
-          <Pharos className="h-6 w-6 shrink-0 text-accent" />
+          <Pharos className="h-7 w-7 shrink-0 text-accent" />
           <span className="max-[420px]:sr-only">
             <span className="text-accent">Alex</span>andria
           </span>
