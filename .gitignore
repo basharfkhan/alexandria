@@ -44,3 +44,6 @@ hello.ts
 /package-lock.json
 skills-lock.json
 
+
+# Local agent config
+.claude

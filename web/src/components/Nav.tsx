@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 
+import { Pharos } from "@/components/Pharos";
 import { useAuth } from "@/lib/auth";
 
 const LINKS = [
@@ -17,13 +18,19 @@ export function Nav() {
   const router = useRouter();
 
   return (
-    <header className="sticky top-0 z-20 border-b border-line bg-paper/90 backdrop-blur">
+    <header className="sticky top-0 z-20 bg-paper/90 backdrop-blur">
       <div className="mx-auto flex max-w-6xl items-center gap-4 px-4 py-3 sm:px-6">
-        <Link href={user ? "/discover" : "/"} className="font-serif text-xl font-semibold tracking-tight">
-          <span className="text-accent">Alex</span>andria
+        <Link
+          href={user ? "/discover" : "/"}
+          className="flex shrink-0 items-center gap-2 font-display text-lg font-semibold tracking-[0.1em] sm:text-xl"
+        >
+          <Pharos className="h-6 w-6 shrink-0 text-accent" />
+          <span className="max-[420px]:sr-only">
+            <span className="text-accent">Alex</span>andria
+          </span>
         </Link>
         {user && (
-          <nav className="flex gap-1 overflow-x-auto text-sm">
+          <nav className="flex min-w-0 gap-1 overflow-x-auto text-sm">
             {LINKS.map((l) => (
               <Link
                 key={l.href}
@@ -37,7 +44,7 @@ export function Nav() {
             ))}
           </nav>
         )}
-        <div className="ml-auto text-sm">
+        <div className="ml-auto shrink-0 text-sm whitespace-nowrap">
           {user ? (
             <button
               onClick={() => {
@@ -55,6 +62,7 @@ export function Nav() {
           )}
         </div>
       </div>
+      <div className="cornice" />
     </header>
   );
 }

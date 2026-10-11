@@ -1,28 +1,43 @@
 @import "tailwindcss";
 
+/* Alexandria takes its name from the library at Alexandria, so the palette is drawn from the
+   materials that library was made of and written on: papyrus and limestone for the surfaces,
+   lapis lazuli and carnelian for the pigments, gold leaf for the highlights, Egyptian faience for
+   the cool accent. Dark mode is the same room at night: basalt instead of limestone, lamplight
+   instead of sun. Component colours all come from these tokens, so the theme lives in one file. */
 :root {
-  --paper: #faf6ef;
-  --card: #ffffff;
-  --ink: #1f1b16;
-  --muted: #6f665b;
-  --line: #e7dfd2;
-  --accent: #7a2e2e;
-  --accent-soft: #f3e3de;
-  --moss: #3f6b4f;
-  --moss-soft: #e2eee5;
+  --paper: #f5ebd7; /* papyrus */
+  --card: #fffaf0; /* limestone */
+  --ink: #241b12; /* kohl */
+  --muted: #7b6a51;
+  --line: #e2d2b2;
+  --accent: #1c4e8a; /* lapis lazuli */
+  --accent-soft: #dce6f2;
+  --moss: #0e7c78; /* faience */
+  --moss-soft: #d5ebe9;
+  --gold: #b8862f;
+  --gold-soft: #f0e2c2;
+  --carnelian: #a8402c;
+  --fiber: rgba(123, 92, 40, 0.05); /* papyrus grain */
+  --sun: rgba(184, 134, 47, 0.1);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --paper: #16130f;
-    --card: #211d18;
-    --ink: #f1ebe1;
-    --muted: #a99f92;
-    --line: #342e27;
-    --accent: #e39a8a;
-    --accent-soft: #3b2522;
-    --moss: #8fc4a0;
-    --moss-soft: #1f3327;
+    --paper: #12100c; /* basalt */
+    --card: #1b1811;
+    --ink: #f1e7d3;
+    --muted: #a6947a;
+    --line: #342c1f;
+    --accent: #86acde;
+    --accent-soft: #1a2639;
+    --moss: #57bdb6;
+    --moss-soft: #10302e;
+    --gold: #d7b35e;
+    --gold-soft: #2e2515;
+    --carnelian: #d4755c;
+    --fiber: rgba(215, 179, 94, 0.035);
+    --sun: rgba(215, 179, 94, 0.07);
   }
 }
 
@@ -36,13 +51,43 @@
   --color-accent-soft: var(--accent-soft);
   --color-moss: var(--moss);
   --color-moss-soft: var(--moss-soft);
+  --color-gold: var(--gold);
+  --color-gold-soft: var(--gold-soft);
+  --color-carnelian: var(--carnelian);
   --font-sans: var(--font-inter);
   --font-serif: var(--font-fraunces);
+  --font-display: var(--font-cinzel);
 }
 
 body {
-  background: var(--paper);
+  /* Woven papyrus: two sets of fibres at right angles, kept faint enough to read through. */
+  background-color: var(--paper);
+  background-image:
+    radial-gradient(60rem 28rem at 50% -8rem, var(--sun), transparent 70%),
+    repeating-linear-gradient(90deg, var(--fiber) 0 1px, transparent 1px 7px),
+    repeating-linear-gradient(0deg, var(--fiber) 0 1px, transparent 1px 10px);
+  background-attachment: fixed;
   color: var(--ink);
+}
+
+/* A painted architrave band: the polychrome strip that runs along the top of a temple wall.
+   Three pixels of it is enough to date the room. */
+.cornice {
+  height: 3px;
+  background: repeating-linear-gradient(
+    90deg,
+    var(--accent) 0 12px,
+    var(--gold) 12px 18px,
+    var(--carnelian) 18px 24px,
+    var(--gold) 24px 30px
+  );
+}
+
+/* Inscribed label: small, letterspaced capitals, the way a lintel is cut. */
+.inscribed {
+  font-family: var(--font-cinzel), serif;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
 }
 
 @keyframes rise {
@@ -58,4 +103,10 @@ body {
 
 .animate-rise {
   animation: rise 0.35s ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-rise {
+    animation: none;
+  }
 }
