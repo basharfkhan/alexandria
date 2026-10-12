@@ -22,7 +22,7 @@ concurrency:
 
 jobs:
   retrain:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 120
     env:
       # Set this repository secret to let the workflow deploy a promoted model; without it the

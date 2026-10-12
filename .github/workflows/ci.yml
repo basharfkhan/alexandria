@@ -12,7 +12,7 @@ concurrency:
 jobs:
   python:
     name: Python - lint & unit tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
@@ -38,7 +38,7 @@ jobs:
 
   postgres-integration:
     name: API against Postgres + pgvector
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: python
     services:
       db:
@@ -89,7 +89,7 @@ jobs:
 
   web:
     name: Web - lint, typecheck & build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: web
@@ -107,7 +107,7 @@ jobs:
 
   docker:
     name: Docker images build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [python, web]
     steps:
       - uses: actions/checkout@v5
